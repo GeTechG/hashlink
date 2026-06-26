@@ -179,6 +179,18 @@ HL_PRIM bool hl_sys_load_plugin( vbyte *file ) {
 	return hl_setup.load_plugin && hl_setup.load_plugin((pchar*)file);
 }
 
+// plugin load/unload primitives (see src/main.c)
+HL_PRIM int hl_sys_load_plugin_id( vbyte *file ) {
+#	ifdef HL_UTF8PATH
+	file = (vbyte*)hl_to_utf8((uchar*)file);
+#	endif
+	return hl_setup.load_plugin_id ? hl_setup.load_plugin_id((pchar*)file) : -1;
+}
+
+HL_PRIM bool hl_sys_unload_plugin( int id ) {
+	return hl_setup.unload_plugin && hl_setup.unload_plugin(id);
+}
+
 HL_PRIM vdynamic *hl_sys_resolve_type( hl_type *t, hl_type *gt ) {
 	if( hl_setup.resolve_type == NULL )
 		return NULL;
@@ -739,4 +751,6 @@ DEFINE_PRIM(_VOID, sys_vtune_init, _NO_ARG);
 DEFINE_PRIM(_I32, sys_set_flags, _I32);
 DEFINE_PRIM(_BOOL, sys_has_debugger, _NO_ARG);
 DEFINE_PRIM(_BOOL, sys_load_plugin, _BYTES);
+DEFINE_PRIM(_I32, sys_load_plugin_id, _BYTES);
+DEFINE_PRIM(_BOOL, sys_unload_plugin, _I32);
 DEFINE_PRIM(_DYN, sys_resolve_type, _TYPE _TYPE);

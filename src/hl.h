@@ -620,6 +620,9 @@ typedef struct {
 	void (*before_exit)();
 	void (*vtune_init)();
 	bool (*load_plugin)( pchar *file );
+	// plugin load/unload primitives (see src/main.c, src/std/sys.c)
+	int (*load_plugin_id)( pchar *file );
+	bool (*unload_plugin)( int id );
 	vdynamic* (*resolve_type)( hl_type *t, hl_type *gt );
 	bool static_call_ref;
 	int closure_stack_capture;

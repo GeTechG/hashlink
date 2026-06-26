@@ -1046,7 +1046,7 @@ void hl_module_free( hl_module *m ) {
 			hl_remove_root(m->globals_data+m->globals_indexes[i]);
 	}
 	hl_free(&m->ctx.alloc);
-	hl_free_executable_memory(m->code, m->codesize);
+	hl_free_executable_memory(m->jit_code, m->codesize); // fix: was m->code — munmap'd the wrong pointer, leaking the JIT region
 #ifdef WIN64_UNWIND_TABLES
 	RtlDeleteFunctionTable(m->unwind_table);
 	free(m->unwind_table);
@@ -1066,4 +1066,20 @@ void hl_module_free( hl_module *m ) {
 	if( m->jit_ctx )
 		hl_jit_free(m->jit_ctx,false);
 	free(m);
+}
+
+// Unlink m from the global cur_modules registry before freeing it. hl_module_free
+// alone leaves a dangling pointer in cur_modules, so the next stack walk / exception
+// resolution dereferences freed memory (deterministic SIGSEGV).
+void hl_module_remove( hl_module *m ) {
+	int i, j;
+	for(i=0;i<modules_count;i++) {
+		if( cur_modules[i] == m ) {
+			for(j=i;j<modules_count-1;j++)
+				cur_modules[j] = cur_modules[j+1];
+			modules_count--;
+			break;
+		}
+	}
+	hl_module_free(m);
 }

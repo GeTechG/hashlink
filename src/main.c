@@ -140,6 +140,59 @@ static bool load_plugin( pchar *file ) {
 	return true;
 }
 
+// Plugin load/unload registry. load_plugin (above) keeps no handle to the loaded module, so it
+// can never be freed. These mirror load_plugin but track each loaded plugin by id so the host can
+// later unload that specific module (the editor reloads a project by unload + reload).
+static hl_module **plugins = NULL;
+static int plugins_count = 0;
+
+static int load_plugin_id( pchar *file ) {
+	char *error_msg = NULL;
+	hl_code *code = load_code(file, &error_msg, false);
+	if( code == NULL )
+		return -1;
+	int i;
+	for(i=0;i<code->ntypes;i++) {
+		hl_type *t1 = code->types + i;
+		if( t1->kind != HOBJ && t1->kind != HSTRUCT ) continue;
+		hl_type *t2 = hl_module_resolve_type(main_ctx->m, t1, false);
+		// ensure that cast will work between types !
+		if( t2 ) t1->obj->name = t2->obj->name;
+	}
+	hl_module *m = hl_module_alloc(code);
+	if( m == NULL )
+		return -1;
+	if( !hl_module_init(m,false) )
+		return -1;
+	hl_code_free(code);
+	// register, reusing a freed slot so the table does not grow per reload
+	int id = -1;
+	for(i=0;i<plugins_count;i++)
+		if( plugins[i] == NULL ) { id = i; break; }
+	if( id < 0 ) {
+		hl_module **np = (hl_module**)malloc(sizeof(void*)*(plugins_count+1));
+		memcpy(np, plugins, sizeof(void*)*plugins_count);
+		free(plugins);
+		plugins = np;
+		id = plugins_count++;
+	}
+	plugins[id] = m;
+	vclosure cl;
+	cl.t = m->code->functions[m->functions_indexes[m->code->entrypoint]].type;
+	cl.fun = m->functions_ptrs[m->code->entrypoint];
+	cl.hasValue = 0;
+	hl_dyn_call(&cl,NULL,0);
+	return id;
+}
+
+static bool unload_plugin( int id ) {
+	if( id < 0 || id >= plugins_count || plugins[id] == NULL )
+		return false;
+	hl_module_remove(plugins[id]);
+	plugins[id] = NULL;
+	return true;
+}
+
 static vdynamic *resolve_type( hl_type *t, hl_type *gt ) {
 	hl_type *t2 = hl_module_resolve_type(main_ctx->m, t, true);
 	if( t2 == NULL || (t2->kind != HOBJ && t2->kind != HSTRUCT))
@@ -291,6 +344,8 @@ int main(int argc, pchar *argv[]) {
 		hl_setup.reload_check = check_reload;
 	}
 	hl_setup.load_plugin = load_plugin;
+	hl_setup.load_plugin_id = load_plugin_id;
+	hl_setup.unload_plugin = unload_plugin;
 	hl_setup.resolve_type = resolve_type;
 	hl_code_free(ctx.code);
 	if( debug_port > 0 && !hl_module_debug(ctx.m,debug_port,debug_wait) ) {
