@@ -972,6 +972,12 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 
 	hl_module_init_natives(m2);
 	hl_module_init_indexes(m2);
+	m2->debug = m1->debug;
+#	ifdef WIN64_UNWIND_TABLES
+	m2->unwind_table_size = m2->code->nfunctions + 10; // extra space for jit internals
+	m2->unwind_table = malloc(sizeof(RUNTIME_FUNCTION) * m2->unwind_table_size);
+	memset(m2->unwind_table, 0, sizeof(RUNTIME_FUNCTION) * m2->unwind_table_size);
+#	endif
 	hl_jit_reset(ctx, m2);
 	hl_code_hash_finalize(m2->hash);
 
@@ -1114,6 +1120,9 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 		fflush(stdout);
 		return false;
 	}
+#	ifdef WIN64_UNWIND_TABLES
+	RtlAddFunctionTable(m2->unwind_table, m2->unwind_table_size, (DWORD64)m2->jit_code);
+#	endif
 
 	for(i=0;i<m2->code->nfunctions;i++) {
 		hl_function *f2 = m2->code->functions + i;

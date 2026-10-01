@@ -305,6 +305,7 @@ void hl_jit_error( const char *msg, const char *func, int line );
 
 void *hl_jit_code( jit_ctx *ctx, hl_module *m, int *codesize, hl_debug_infos **debug, hl_module *previous );
 void hl_jit_patch_method( void *old_fun, void **new_fun_table );
+void *hl_jit_previous_function( hl_module *m, hl_module *previous, int findex );
 
 static ereg _reg_chk( ereg r, rkind k, ereg ret ) {
 	if( REG_KIND(r) != k ) jit_assert();

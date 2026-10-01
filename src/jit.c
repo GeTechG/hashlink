@@ -66,7 +66,7 @@ void hl_jit_assert() {
 void hl_emit_alloc( jit_ctx *jit );
 void hl_emit_free( jit_ctx *jit );
 void hl_emit_function( jit_ctx *jit );
-void hl_emit_final( jit_ctx *jit );
+void hl_emit_final( jit_ctx *jit, hl_module *previous );
 
 void hl_regs_alloc( jit_ctx *jit );
 void hl_regs_free( jit_ctx *jit );
@@ -75,7 +75,7 @@ void hl_regs_function( jit_ctx *jit );
 void hl_codegen_alloc( jit_ctx *jit );
 void hl_codegen_init( jit_ctx *jit );
 void hl_codegen_free( jit_ctx *jit );
-void hl_codegen_flush_consts( jit_ctx *jit );
+bool hl_codegen_flush_consts( jit_ctx *jit, hl_module *previous );
 void hl_codegen_function( jit_ctx *jit );
 void hl_codegen_final( jit_ctx *jit );
 
@@ -156,6 +156,14 @@ void hl_jit_init( jit_ctx *ctx, hl_module *m ) {
 }
 
 void hl_jit_free( jit_ctx *ctx, h_bool can_reset ) {
+	if( can_reset ) {
+		// keep the context for hl_jit_reset, only release the module output
+		free(ctx->output);
+		ctx->output = NULL;
+		ctx->out_max = 0;
+		ctx->out_pos = 0;
+		return;
+	}
 	hl_codegen_free(ctx);
 	hl_regs_free(ctx);
 	hl_emit_free(ctx);
@@ -166,6 +174,25 @@ void hl_jit_free( jit_ctx *ctx, h_bool can_reset ) {
 }
 
 void hl_jit_reset( jit_ctx *ctx, hl_module *m ) {
+	ctx->out_pos = 0;
+	ctx->fdef_index = 0;
+	hl_jit_init(ctx, m);
+	// only some of the functions will be compiled : mark the others as missing
+	if( m->jit_debug ) {
+		for(int i=0;i<m->code->nfunctions;i++)
+			m->jit_debug[i].start = -1;
+	}
+}
+
+// address of a function that was not compiled in this module (hot reload) :
+// read its current address from the previous module
+void *hl_jit_previous_function( hl_module *m, hl_module *previous, int findex ) {
+	if( previous == NULL || m->hash == NULL )
+		return NULL;
+	int old_idx = m->hash->functions_hashes[m->functions_indexes[findex]];
+	if( old_idx < 0 )
+		return NULL;
+	return previous->functions_ptrs[(previous->code->functions + old_idx)->findex];
 }
 
 int hl_jit_function( jit_ctx *ctx, hl_module *m, hl_function *f ) {
@@ -347,8 +374,10 @@ double hl_jit_wrapper_d( vclosure_wrapper *c, char *stack_args, void **regs ) {
 }
 
 void *hl_jit_code( jit_ctx *ctx, hl_module *m, int *codesize, hl_debug_infos **debug, hl_module *previous ) {
-	hl_codegen_flush_consts(ctx);
-	jit_code_append(ctx);
+	if( !hl_codegen_flush_consts(ctx, previous) )
+		return NULL;
+	if( !jit_code_append(ctx) )
+		return NULL;
 	int size = ctx->out_pos;
 	if( size & 4095 ) size += 4096 - (size&4095);
 	unsigned char *code = (unsigned char*)hl_alloc_executable_memory(size);
@@ -357,7 +386,7 @@ void *hl_jit_code( jit_ctx *ctx, hl_module *m, int *codesize, hl_debug_infos **d
 	*codesize = size;
 	*debug = m->jit_debug;
 	ctx->final_code = code;
-	hl_emit_final(ctx);
+	hl_emit_final(ctx, previous);
 	hl_codegen_final(ctx);
 	arg_reg_count = ctx->cfg.regs.nargs;
 	arg_fp_count = ctx->cfg.floats.nargs;

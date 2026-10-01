@@ -309,6 +309,23 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # reload.hl (hot reload : the second file is the same program built with -D v2)
+
+    foreach(v v1 v2)
+        add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_${v}.hl
+            COMMAND ${HAXE_COMPILER}
+                ${HAXE_HL_FLAGS}
+                -D ${v}
+                -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_${v}.hl
+                -cp ${CMAKE_SOURCE_DIR}/other/tests -main Reload
+        )
+    endforeach()
+    add_custom_target(reload.hl ALL
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl
+            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v2.hl
+    )
+
+    #####################
     # plugin.hl (HL plugins need Haxe 5)
 
     execute_process(COMMAND ${HAXE_COMPILER} --version
@@ -445,6 +462,14 @@ if(BUILD_TESTING)
         )
         add_test(NAME manyargs.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/manyargs.hl
+        )
+        add_test(NAME reload.hl
+            COMMAND hl --hot-reload ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl
+                ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v2.hl
+        )
+        set_tests_properties(reload.hl
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION "before=181 reloaded=true value=182"
         )
         if(TARGET plugin.hl)
             add_test(NAME plugin.hl
