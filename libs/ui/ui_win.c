@@ -228,14 +228,14 @@ static void sentinel_loop( vsentinel *s ) {
 				// simulate a call
 #				ifdef HL_64
 				int_val* rsp = (int_val*)regs.Rsp;
+				// ensure the stack is aligned to 16 bytes 
+				rsp = (int_val*)((int_val)rsp & ~15);
 				*--rsp = (int_val)regs.Rip;
-				*--rsp = (int_val)rsp;
 				regs.Rsp = (int_val)rsp;
 				regs.Rip = (int_val)s->callback;
 #				else
 				int_val* esp = (int_val*)regs.Esp;
 				*--esp = (int_val)regs.Eip;
-				*--esp = (int_val)esp;
 				regs.Esp = (int_val)esp;
 				regs.Eip = (int_val)s->callback;
 #				endif
@@ -282,11 +282,14 @@ HL_PRIM void HL_NAME(ui_close_console)() {
 	FreeConsole();
 }
 
+// declared in utils.cpp, because COM objects don't play nicely with pure C code
+bool chooseFolder(const wchar_t* title, const wchar_t* defaultFolder, wchar_t* outBuffer);
 
 HL_PRIM vbyte *HL_NAME(ui_choose_file)( bool forSave, vdynamic *options ) {
 	wref *win = (wref*)hl_dyn_getp(options,hl_hash_utf8("window"), &hlt_abstract);
 	varray *filters = (varray*)hl_dyn_getp(options,hl_hash_utf8("filters"),&hlt_array);
 	wchar_t *fileName = (wchar_t*)hl_dyn_getp(options,hl_hash_utf8("fileName"),&hlt_bytes);
+	bool isFolder = (bool)hl_dyn_geti(options,hl_hash_utf8("isFolder"),&hlt_bool);
 	OPENFILENAME op;
 	wchar_t filterStr[1024];
 	wchar_t outputFile[1024] = {0};
@@ -318,9 +321,14 @@ HL_PRIM vbyte *HL_NAME(ui_choose_file)( bool forSave, vdynamic *options ) {
 		if( !GetSaveFileName(&op) )
 			return NULL;
 	} else {
-		op.Flags |= OFN_CREATEPROMPT;
-		if( !GetOpenFileName(&op) )
-			return NULL;
+		if (!isFolder) {
+			op.Flags |= OFN_CREATEPROMPT;
+			if( !GetOpenFileName(&op) )
+				return NULL;
+		} else {
+			if (!chooseFolder(op.lpstrTitle, op.lpstrInitialDir, outputFile))
+				return NULL;
+		}
 	}
 	return hl_copy_bytes((vbyte*)outputFile, (int)(wcslen(outputFile)+1)*2);
 }
@@ -388,7 +396,7 @@ DEFINE_PRIM(_VOID, ui_winlog_set_text, _WIN _BYTES _BOOL);
 DEFINE_PRIM(_VOID, ui_win_set_text, _WIN _BYTES);
 DEFINE_PRIM(_VOID, ui_win_set_enable, _WIN _BOOL);
 DEFINE_PRIM(_VOID, ui_win_destroy, _WIN);
-DEFINE_PRIM(_I32, ui_loop, _BOOL);
+DEFINE_PRIM(_I32 HL_CALLB, ui_loop, _BOOL);
 DEFINE_PRIM(_VOID, ui_stop_loop, _NO_ARG);
 DEFINE_PRIM(_VOID, ui_close_console, _NO_ARG);
 

@@ -10,7 +10,7 @@ INSTALL_INCLUDE_DIR ?= $(PREFIX)/include
 LIBS = $(addsuffix .hdll,fmt sdl ssl openal ui uv mysql sqlite heaps)
 ARCH ?= $(shell uname -m)
 
-CFLAGS = -Wall -O3 -std=c11 -fvisibility=hidden
+CFLAGS = -Wall -O3 -std=c11 -fvisibility=hidden -MMD -MP
 CPPFLAGS = -I src
 LIBHL_LDFLAGS =
 LIBHL_LDLIBS = -lm -lpthread
@@ -41,7 +41,7 @@ STD = src/std/array.o src/std/buffer.o src/std/bytes.o src/std/cast.o src/std/da
 	src/std/socket.o src/std/string.o src/std/sys.o src/std/types.o src/std/ucs2.o src/std/thread.o src/std/process.o \
 	src/std/track.o
 
-HL_OBJ = src/code.o src/jit.o src/main.o src/module.o src/debugger.o src/profile.o
+HL_OBJ = src/code.o src/jit.o src/jit_emit.o src/jit_regs.o src/jit_x86_64.o src/jit_dump.o src/main.o src/module.o src/debugger.o src/profile.o
 
 FMT_CPPFLAGS = -I include/mikktspace -I include/minimp3
 
@@ -109,14 +109,16 @@ SQLITE = libs/sqlite/sqlite.o
 
 HEAPS = libs/heaps/mikkt.o libs/heaps/meshoptimizer.o libs/heaps/vhacd.o libs/heaps/renderdoc.o
 HEAPS += include/mikktspace/mikktspace.o
-HEAPS += include/meshoptimizer/allocator.o include/meshoptimizer/overdrawoptimizer.o \
-	include/meshoptimizer/vcacheoptimizer.o include/meshoptimizer/clusterizer.o \
-	include/meshoptimizer/quantization.o include/meshoptimizer/vertexcodec.o \
-	include/meshoptimizer/indexcodec.o include/meshoptimizer/simplifier.o \
-	include/meshoptimizer/vertexfilter.o include/meshoptimizer/indexgenerator.o \
-	include/meshoptimizer/spatialorder.o include/meshoptimizer/vfetchanalyzer.o \
-	include/meshoptimizer/stripifier.o include/meshoptimizer/vfetchoptimizer.o \
-	include/meshoptimizer/overdrawanalyzer.o include/meshoptimizer/vcacheanalyzer.o
+HEAPS += include/meshoptimizer/allocator.o include/meshoptimizer/clusterizer.o \
+	include/meshoptimizer/indexanalyzer.o include/meshoptimizer/indexcodec.o \
+	include/meshoptimizer/indexgenerator.o include/meshoptimizer/meshletcodec.o \
+	include/meshoptimizer/meshletutils.o include/meshoptimizer/opacitymap.o \
+	include/meshoptimizer/overdrawoptimizer.o include/meshoptimizer/partition.o \
+	include/meshoptimizer/quantization.o include/meshoptimizer/rasterizer.o \
+	include/meshoptimizer/simplifier.o include/meshoptimizer/spatialorder.o \
+	include/meshoptimizer/stripifier.o include/meshoptimizer/tangentspace.o \
+	include/meshoptimizer/vcacheoptimizer.o include/meshoptimizer/vertexcodec.o \
+	include/meshoptimizer/vertexfilter.o include/meshoptimizer/vfetchoptimizer.o
 HEAPS_CPPFLAGS = -I include/mikktspace -I include/meshoptimizer -I include/vhacd -I include/renderdoc
 
 LIB = ${PCRE} ${RUNTIME} ${STD}
@@ -386,10 +388,15 @@ codesign_osx:
 .SUFFIXES:
 .SUFFIXES: .cpp .c .o
 
+ALL_OBJS = ${STD} ${BOOT} ${RUNTIME} ${PCRE} ${HL_OBJ} ${FMT} ${SDL} ${SSL} ${OPENAL} ${UI} ${UV} ${MYSQL} ${SQLITE} ${HEAPS} ${HL_DEBUG}
+DEPS = $(ALL_OBJS:.o=.d)
+
 clean_o:
-	rm -f ${STD} ${BOOT} ${RUNTIME} ${PCRE} ${HL_OBJ} ${FMT} ${SDL} ${SSL} ${OPENAL} ${UI} ${UV} ${MYSQL} ${SQLITE} ${HEAPS} ${HL_DEBUG}
+	rm -f ${ALL_OBJS} ${DEPS}
 
 clean: clean_o
 	rm -f $(HL) $(HLC) $(LIBHL) *.hdll
 
 .PHONY: libs release
+
+-include $(DEPS)

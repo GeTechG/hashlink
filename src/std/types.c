@@ -35,7 +35,7 @@ HL_PRIM hl_type hlt_bool = { HBOOL };
 HL_PRIM hl_type hlt_abstract = { HABSTRACT, {USTR("<abstract>")} };
 
 static const uchar *TSTR[] = {
-	USTR("void"), USTR("i8"), USTR("i16"), USTR("i32"), USTR("i64"), USTR("f32"), USTR("f64"),
+	USTR("void"), USTR("ui8"), USTR("ui16"), USTR("i32"), USTR("i64"), USTR("f32"), USTR("f64"),
 	USTR("bool"), USTR("bytes"), USTR("dynamic"), NULL, NULL,
 	USTR("array"), USTR("type"), NULL, NULL, USTR("dynobj"),
 	NULL, NULL, NULL, NULL, NULL, NULL, USTR("guid")
@@ -43,8 +43,8 @@ static const uchar *TSTR[] = {
 
 static int T_SIZES[] = {
 	0, // VOID
-	1, // I8
-	2, // I16
+	1, // UI8
+	2, // UI16
 	4, // I32
 	8, // I64
 	4, // F32
@@ -160,8 +160,8 @@ HL_PRIM bool hl_same_type( hl_type *a, hl_type *b ) {
 HL_PRIM bool hl_is_dynamic( hl_type *t ) {
 	static bool T_IS_DYNAMIC[] = {
 		false, // HVOID,
-		false, // HI8
-		false, // HI16
+		false, // HUI8
+		false, // HUI16
 		false, // HI32
 		false, // HI64
 		false, // HF32
@@ -190,8 +190,8 @@ HL_PRIM bool hl_is_dynamic( hl_type *t ) {
 HL_PRIM bool hl_is_ptr( hl_type *t ) {
 	static bool T_IS_PTR[] = {
 		false, // HVOID,
-		false, // HI8
-		false, // HI16
+		false, // HUI8
+		false, // HUI16
 		false, // HI32
 		false, // HI64
 		false, // HF32
@@ -691,6 +691,7 @@ typedef struct {
 	int todos_pos;
 	int todos_size;
 	int flags;
+	vdynamic * volatile root;
 } mem_context;
 
 #define compact_grow(buf,pos,size,req,type) \
@@ -911,7 +912,7 @@ static void compact_write_content( mem_context *ctx, vdynamic *d ) {
 			compact_pad(ctx,&hlt_dyn);
 			for(i=0;i<obj->nvalues;i++) {
 				int j;
-				for(j=0;i<obj->nfields;j++) {
+				for(j=0;j<obj->nfields;j++) {
 					if( (obj->lookup[j].field_index&HL_DYNOBJ_INDEX_MASK) == i && hl_is_ptr(obj->lookup[j].t) ) {
 						compact_write_data(ctx, obj->lookup[j].t, obj->values + i);
 						break;
@@ -965,6 +966,7 @@ HL_PRIM vdynamic *hl_mem_compact( vdynamic *d, varray *exclude, int flags, int *
 	int i;
 	int object_count = 0;
 	memset(ctx,0,sizeof(mem_context));
+	ctx->root = d; // retain the graph while we walk it
 	ctx->lookup = hl_mlookup_alloc();
 	ctx->flags = flags;
 	compact_lookup_ref(ctx,d,false);
