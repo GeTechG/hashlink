@@ -54,8 +54,16 @@
 #define MAX_STACK_SIZE (8 << 20)
 #define MAX_STACK_COUNT 2048
 
+#ifndef HL_THREADS
+#	define PROFILE_BARRIER()
+#elif defined(HL_VCC)
+#	define PROFILE_BARRIER()	MemoryBarrier()
+#else
+#	define PROFILE_BARRIER()	__sync_synchronize()
+#endif
+
 HL_API double hl_sys_time( void );
-int hl_module_capture_stack_range( void *stack_top, void **stack_ptr, void **out, int size );
+int hl_module_capture_stack_walk( void *pc, void *fp, void *stack_base, void *stack_top, void *copy, void **out, int size );
 uchar *hl_module_resolve_symbol_full( void *addr, uchar *out, int *outSize, int **r_debug_addr );
 
 typedef struct _thread_handle thread_handle;
@@ -68,6 +76,10 @@ struct _thread_handle {
 #	endif
 	hl_thread_info *inf;
 	char name[128];
+	void **cached_stack;
+	int cached_count;
+	int cached_seq;
+	bool has_cache;
 	thread_handle *next;
 };
 
@@ -133,35 +145,38 @@ static void sigprof_handler(int sig, siginfo_t *info, void *ucontext)
 }
 #endif
 
-static void *get_thread_stackptr( thread_handle *t, void **eip ) {
+static void *get_thread_stackptr( thread_handle *t, void **pc, void **fp ) {
+	*fp = NULL;
 #ifdef HL_WIN_DESKTOP
 	CONTEXT c;
-	c.ContextFlags = CONTEXT_CONTROL;
+	c.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
 	if( !GetThreadContext(t->h,&c) ) return NULL;
-#	ifdef HL_64
-	*eip = (void*)c.Rip;
+	*pc = (void*)c.Rip;
+	*fp = (void*)c.Rbp;
 	return (void*)c.Rsp;
-#	else
-	*eip = (void*)c.Eip;
-	return (void*)c.Esp;
-#	endif
-#elif defined(HL_LINUX) && (defined(__x86_64__) || defined(__i386__))
-#	ifdef HL_64
-	*eip = (void*)shared_context.context.uc_mcontext.gregs[REG_RIP];
+#elif defined(HL_LINUX) && defined(__x86_64__)
+	*pc = (void*)shared_context.context.uc_mcontext.gregs[REG_RIP];
+	*fp = (void*)shared_context.context.uc_mcontext.gregs[REG_RBP];
 	return (void*)shared_context.context.uc_mcontext.gregs[REG_RSP];
-#	else
-	*eip = (void*)shared_context.context.uc_mcontext.gregs[REG_EIP];
-	return (void*)shared_context.context.uc_mcontext.gregs[REG_ESP];
-#	endif
 #elif defined(HL_LINUX) && defined(__aarch64__)
 	// Linux/Android ARM64: uc_mcontext has direct regs[] / sp / pc fields.
-	*eip = (void*)shared_context.context.uc_mcontext.pc;
+	*pc = (void*)shared_context.context.uc_mcontext.pc;
+	*fp = (void*)shared_context.context.uc_mcontext.regs[29];
 	return (void*)shared_context.context.uc_mcontext.sp;
 #elif defined(HL_MAC) && defined(__x86_64__)
 	struct __darwin_mcontext64 *mcontext = shared_context.context.uc_mcontext;
 	if (mcontext != NULL) {
-		*eip = (void*)mcontext->__ss.__rip;
+		*pc = (void*)mcontext->__ss.__rip;
+		*fp = (void*)mcontext->__ss.__rbp;
 		return (void*)mcontext->__ss.__rsp;
+	}
+	return NULL;
+#elif defined(HL_MAC) && defined(__aarch64__)
+	struct __darwin_mcontext64 *mcontext = shared_context.context.uc_mcontext;
+	if (mcontext != NULL) {
+		*pc = (void*)mcontext->__ss.__pc;
+		*fp = (void*)mcontext->__ss.__fp;
+		return (void*)mcontext->__ss.__sp;
 	}
 	return NULL;
 #else
@@ -179,6 +194,9 @@ static void thread_data_free( thread_handle *t ) {
 #ifdef HL_WIN
 	CloseHandle(t->h);
 #endif
+	free(t->cached_stack);
+	t->cached_stack = NULL;
+	t->has_cache = false;
 }
 
 static bool pause_thread( thread_handle *t, bool b ) {
@@ -230,38 +248,7 @@ static void record_data( void *ptr, int size ) {
 	r->currentPos += size;
 }
 
-static void read_thread_data( thread_handle *t ) {
-	if( !pause_thread(t,true) )
-		return;
-	void *eip;
-	void *stack = get_thread_stackptr(t,&eip);
-	if( !stack ) {
-		pause_thread(t,false);
-		return;
-	}
-
-#if defined(HL_LINUX) || defined(HL_MAC)
-    int count = hl_module_capture_stack_range(t->inf->stack_top, stack, data.stackOut, MAX_STACK_COUNT);
-    pause_thread(t, false);
-#else
-	int size = (int)((unsigned char*)t->inf->stack_top - (unsigned char*)stack);
-	if( size > MAX_STACK_SIZE-32 ) size = MAX_STACK_SIZE-32;
-#if defined(HL_WIN_DESKTOP) && defined(HL_VCC)
-	// it seems we rarely can't make a first read on the thread stack, let's ignore errors and wait.
-	__try {
-#endif
-		memcpy(data.tmpMemory + 2,stack,size);
-#if defined(HL_WIN_DESKTOP) && defined(HL_VCC)
-	} __except(EXCEPTION_EXECUTE_HANDLER) {
-	}
-#endif
-	pause_thread(t, false);
-	data.tmpMemory[0] = eip;
-	data.tmpMemory[1] = stack;
-	size += sizeof(void*) * 2;
-
-	int count = hl_module_capture_stack_range((char*)data.tmpMemory+size, (void**)data.tmpMemory, data.stackOut, MAX_STACK_COUNT);
-#endif
+static void record_sample( thread_handle *t, int count ) {
 	int eventId = count | 0x80000000;
 	double time = hl_sys_time();
 	hl_threads_info *gc = hl_gc_threads_info();
@@ -272,6 +259,63 @@ static void read_thread_data( thread_handle *t ) {
 	record_data(data.stackOut,sizeof(void*)*count);
 	if( *t->inf->thread_name && !*t->name )
 		memcpy(t->name, t->inf->thread_name, sizeof(t->name));
+}
+
+static bool read_blocking_thread_data( thread_handle *t ) {
+	hl_thread_info *inf = t->inf;
+	void **stack_cur;
+	int seq, count;
+	if( inf->gc_blocking <= 0 ) return false;
+	seq = inf->gc_ctx_seq;
+	if( seq & 1 ) return false;
+	if( t->has_cache && t->cached_seq == seq ) {
+		memcpy(data.stackOut, t->cached_stack, t->cached_count * sizeof(void*));
+		record_sample(t,t->cached_count);
+		return true;
+	}
+	PROFILE_BARRIER();
+	stack_cur = (void**)inf->stack_cur;
+	if( stack_cur == NULL || (void*)stack_cur >= inf->stack_top ) return false;
+	count = hl_module_capture_stack_walk(NULL, NULL, stack_cur, inf->stack_top, NULL, data.stackOut, MAX_STACK_COUNT);
+	PROFILE_BARRIER();
+	if( inf->gc_ctx_seq != seq || inf->gc_blocking <= 0 )
+		return false;
+	if( t->cached_stack == NULL )
+		t->cached_stack = (void**)malloc(sizeof(void*) * MAX_STACK_COUNT);
+	if( t->cached_stack ) {
+		memcpy(t->cached_stack, data.stackOut, count * sizeof(void*));
+		t->cached_count = count;
+		t->cached_seq = seq;
+		t->has_cache = true;
+	}
+	record_sample(t,count);
+	return true;
+}
+
+static void read_thread_data( thread_handle *t, bool locked ) {
+	if( locked && read_blocking_thread_data(t) )
+		return;
+	if( !pause_thread(t,true) )
+		return;
+	void *pc, *fp;
+	void *stack = get_thread_stackptr(t,&pc,&fp);
+	if( !stack ) {
+		pause_thread(t,false);
+		return;
+	}
+
+#if defined(HL_LINUX) || defined(HL_MAC)
+	int count = hl_module_capture_stack_walk(pc, fp, stack, t->inf->stack_top, NULL, data.stackOut, MAX_STACK_COUNT);
+	pause_thread(t, false);
+#else
+	int size = (int)((unsigned char*)t->inf->stack_top - (unsigned char*)stack);
+	if( size < 0 ) size = 0;
+	if( size > MAX_STACK_SIZE-32 ) size = MAX_STACK_SIZE-32;
+	memcpy(data.tmpMemory,stack,size);
+	pause_thread(t, false);
+	int count = hl_module_capture_stack_walk(pc, fp, stack, (char*)stack + size, data.tmpMemory, data.stackOut, MAX_STACK_COUNT);
+#endif
+	record_sample(t,count);
 }
 
 static void profile_pause() {
@@ -335,6 +379,7 @@ static void hl_profile_loop( void *_ ) {
 							h->next = data.handles;
 							data.handles = h;
 						}
+						cur = h;
 						break;
 					}
 					hprev = h;
@@ -351,8 +396,24 @@ static void hl_profile_loop( void *_ ) {
 					if( prev == NULL ) data.handles = h; else prev->next = h;
 				}
 			}
-			if( (t->flags & HL_THREAD_PROFILER_PAUSED) == 0 )
-				read_thread_data(cur);
+			if( cur->inf != t ) {
+				thread_data_free(cur);
+				memset(cur->name, 0, sizeof(cur->name));
+				cur->inf = t;
+				thread_data_init(cur);
+			}
+			if( (t->flags & HL_THREAD_PROFILER_PAUSED) == 0 ) {
+				bool locked = hl_mutex_try_acquire(threads->global_lock);
+				if( locked || threads->stopping_world ) {
+					int k;
+					for(k=0;k<threads->count;k++)
+						if( threads->threads[k] == t ) {
+							read_thread_data(cur,locked);
+							break;
+						}
+				}
+				if( locked ) hl_mutex_release(threads->global_lock);
+			}
 			prev = cur;
 			cur = cur->next;
 		}

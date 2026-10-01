@@ -7,6 +7,33 @@
 #include <dxgi1_5.h>
 #include <d3d12.h>
 #include <dxcapi.h>
+
+#ifdef HL_AFTERMATH
+#ifdef HL_64
+#pragma comment(lib, "GFSDK_Aftermath_Lib.x64.lib")
+#else
+#pragma comment(lib, "GFSDK_Aftermath_Lib.x86.lib")
+#endif
+#include <GFSDK_Aftermath.h>
+#include <GFSDK_Aftermath_GpuCrashDump.h>
+#include <GFSDK_Aftermath_GpuCrashDumpDecoding.h>
+#include <GFSDK_Aftermath_GpuCrashDumpEditing.h>
+#include <map>
+#include <mutex>
+#include <sstream>
+#include <iomanip>
+#include <vector>
+
+inline bool operator<(const GFSDK_Aftermath_ShaderDebugInfoIdentifier& lhs, const GFSDK_Aftermath_ShaderDebugInfoIdentifier& rhs)
+{
+	if (lhs.id[0] == rhs.id[0])
+	{
+		return lhs.id[1] < rhs.id[1];
+	}
+	return lhs.id[0] < rhs.id[0];
+}
+#endif
+
 #endif
 
 #ifdef HL_XBS
@@ -46,9 +73,188 @@ enum DriverInitFlag {
 	BREAK_ON_ERROR           = 1 << 2,
 };
 
+class GpuCrashTracker {
+#ifdef HL_AFTERMATH
+#ifdef HL_WIN_DESKTOP
+private:
+	static void GpuCrashDumpCallback(const void* pGpuCrashDump, const uint32_t gpuCrashDumpSize, void* pUserData)
+	{
+		GpuCrashTracker* pGpuCrashTracker = reinterpret_cast<GpuCrashTracker*>(pUserData);
+		pGpuCrashTracker->OnCrashDump(pGpuCrashDump, gpuCrashDumpSize);
+	}
+
+	static void ShaderDebugInfoCallback(const void* pShaderDebugInfo, const uint32_t shaderDebugInfoSize, void* pUserData)
+	{
+		GpuCrashTracker* pGpuCrashTracker = reinterpret_cast<GpuCrashTracker*>(pUserData);
+		pGpuCrashTracker->OnShaderDebugInfo(pShaderDebugInfo, shaderDebugInfoSize);
+	}
+public:
+	GpuCrashTracker(ID3D12Device* pDevice) 
+	{
+		GFSDK_Aftermath_EnableGpuCrashDumps(
+			GFSDK_Aftermath_Version_API,
+			GFSDK_Aftermath_GpuCrashDumpWatchedApiFlags_DX,
+			GFSDK_Aftermath_GpuCrashDumpFeatureFlags_Default,
+			GpuCrashDumpCallback,
+			ShaderDebugInfoCallback,
+			nullptr,
+			nullptr,
+			this
+		);
+		GFSDK_Aftermath_DX12_Initialize(
+			GFSDK_Aftermath_Version_API,
+			GFSDK_Aftermath_FeatureFlags_EnableMarkers
+			 | GFSDK_Aftermath_FeatureFlags_EnableResourceTracking
+			 | GFSDK_Aftermath_FeatureFlags_GenerateShaderDebugInfo
+			 | GFSDK_Aftermath_FeatureFlags_EnableShaderErrorReporting,
+			pDevice
+		);
+	}
+
+	void OnCreateGraphicsPipeline(const D3D12_GRAPHICS_PIPELINE_STATE_DESC* pDesc)
+	{
+		RegisterShader(pDesc->VS);
+		RegisterShader(pDesc->PS);
+		RegisterShader(pDesc->DS);
+		RegisterShader(pDesc->HS);
+		RegisterShader(pDesc->GS);
+	}
+
+	void OnCreateComputePipeline(const D3D12_COMPUTE_PIPELINE_STATE_DESC* pDesc)
+	{
+		RegisterShader(pDesc->CS);
+	}
+
+	void OnResourceSetName(ID3D12Resource* pRes)
+	{
+		GFSDK_Aftermath_DX12_UpdateResourceInfo(pRes);
+	}
+private:
+	void RegisterShader(const D3D12_SHADER_BYTECODE& shader)
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		GFSDK_Aftermath_ShaderBinaryHash hash;
+		GFSDK_Aftermath_GetShaderHash(GFSDK_Aftermath_Version_API, &shader, &hash);
+		if (shader.pShaderBytecode == nullptr || m_shaders.find(hash.hash) != m_shaders.end())
+			return;
+
+		m_shaders[hash.hash] = shader;
+	}
+
+	void OnCrashDump(const void* pGpuCrashDump, const uint32_t gpuCrashDumpSize)
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+		if (!s_pfnOnGpuCrashFile)
+			return;
+
+		bool on_unregistered_thread = !hl_get_thread();
+		if (on_unregistered_thread) {
+			vdynamic* ctx;
+			hl_register_thread(&ctx);
+		}
+
+		GFSDK_Aftermath_GpuCrashDump_Decoder decoder;
+		GFSDK_Aftermath_GpuCrashDump_CreateDecoder(
+			GFSDK_Aftermath_Version_API,
+			pGpuCrashDump,
+			gpuCrashDumpSize,
+			&decoder);
+
+		GFSDK_Aftermath_GpuCrashDump_BaseInfo baseInfo;
+		GFSDK_Aftermath_GpuCrashDump_GetBaseInfo(decoder, &baseInfo);
+
+		uint32_t shaderCount;
+		GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfoCount(decoder, &shaderCount);
+
+		GFSDK_Aftermath_GpuCrashDump_ShaderInfo* pShaderInfos = new GFSDK_Aftermath_GpuCrashDump_ShaderInfo[shaderCount];
+		GFSDK_Aftermath_GpuCrashDump_GetActiveShadersInfo(decoder, shaderCount, pShaderInfos);
+		
+		for (uint32_t i = 0; i < shaderCount; i++) 
+		{
+			GFSDK_Aftermath_GpuCrashDump_ShaderInfo& shaderInfo = pShaderInfos[i];
+			GFSDK_Aftermath_ShaderBinaryHash hash;
+			GFSDK_Aftermath_GetShaderHashForShaderInfo(decoder, &shaderInfo, &hash);
+			auto itShader = m_shaders.find(hash.hash);
+			if (itShader != m_shaders.end())
+			{
+				D3D12_SHADER_BYTECODE& s = itShader->second;
+				std::ostringstream filename;
+				filename << "shader-"
+					<< std::hex
+					<< std::setfill('0')
+					<< std::setw(16) << hash.hash
+					<< ".bin";
+				OnCrashFile(filename.str().c_str(), s.pShaderBytecode, (uint32_t)s.BytecodeLength);
+			}
+
+			GFSDK_Aftermath_ShaderDebugInfoIdentifier identifier{ { shaderInfo.shaderHash, shaderInfo.shaderDebugInfoUid  } };
+			auto itShaderDebug = m_shaderDebugInfo.find(identifier);
+			if (itShaderDebug != m_shaderDebugInfo.end())
+			{
+				std::ostringstream filename;
+				filename << "shader-"
+					<< std::hex
+					<< std::setfill('0')
+					<< std::setw(16) << identifier.id[0]
+					<< std::setw(16) << identifier.id[1]
+					<< ".nvdbg";
+				OnCrashFile(filename.str().c_str(), itShaderDebug->second.data(), (uint32_t)itShaderDebug->second.size());
+			}
+		}
+
+		const std::string filename = "GPUCrashDump-" + std::to_string(baseInfo.pid) + ".nv-gpudmp";
+		OnCrashFile(filename.c_str(), pGpuCrashDump, gpuCrashDumpSize, true);
+
+		if (on_unregistered_thread)
+			hl_unregister_thread();
+	}
+
+	void OnCrashFile(const char* path, const void* pData, uint32_t size, bool last = false)
+	{
+		vdynamic args[4];
+		vdynamic* vargs[4] = { &args[0], &args[1], &args[2], &args[3]};
+		args[0].t = &hlt_bytes;
+		args[0].v.ptr = hl_copy_bytes((const vbyte*)path, (uint32_t)strlen(path) + 1);
+		args[1].t = &hlt_bytes;
+		args[1].v.ptr = hl_copy_bytes((const vbyte*)pData, size);
+		args[2].t = &hlt_i32;
+		args[2].v.i = size;
+		args[3].t = &hlt_bool;
+		args[3].v.b = last;
+		hl_dyn_call(s_pfnOnGpuCrashFile, vargs, 4);
+	}
+
+	void OnShaderDebugInfo(const void* pShaderDebugInfo, const uint32_t shaderDebugInfoSize)
+	{
+		std::lock_guard<std::mutex> lock(m_mutex);
+
+		GFSDK_Aftermath_ShaderDebugInfoIdentifier identifier;
+		GFSDK_Aftermath_GetShaderDebugInfoIdentifier(GFSDK_Aftermath_Version_API, pShaderDebugInfo, shaderDebugInfoSize, &identifier);
+		std::vector<uint8_t> data((uint8_t*)pShaderDebugInfo, (uint8_t*)pShaderDebugInfo + shaderDebugInfoSize);
+		m_shaderDebugInfo[identifier].swap(data);
+	}
+private:
+	std::mutex m_mutex;
+	std::map<uint64_t, D3D12_SHADER_BYTECODE> m_shaders;
+	std::map<GFSDK_Aftermath_ShaderDebugInfoIdentifier, std::vector<uint8_t>> m_shaderDebugInfo;
+#else
+#error GpuCrashTracker not implemented on this platform
+#endif
+#else
+public:
+	GpuCrashTracker(ID3D12Device* pDevice) {};
+	void OnCreateGraphicsPipeline(const D3D12_GRAPHICS_PIPELINE_STATE_DESC* pDesc){}
+	void OnCreateComputePipeline(const D3D12_COMPUTE_PIPELINE_STATE_DESC* pDesc){}
+	void OnResourceSetName(ID3D12Resource* pRes){}
+#endif
+public:
+	static vclosure* s_pfnOnGpuCrashFile;
+};
+vclosure* GpuCrashTracker::s_pfnOnGpuCrashFile = nullptr;
+
 typedef struct {
 	HWND wnd;
-	ID3D12CommandQueue *commandQueue;
+	GpuCrashTracker* gpuCrashTracker;
 #ifndef HL_XBS
 	IDXGIFactory4 *factory;
 	IDXGIAdapter3 *adapter;
@@ -76,22 +282,49 @@ static int CURRENT_NODEMASK = 0;
 static LARGE_INTEGER driver_version = {0};
 
 typedef ID3D12Device2 dx_device;
+typedef IDXGIFactory dx_factory;
+typedef IDXGIAdapter dx_adapter;
 
 #define _DEVICE _ABSTRACT(dx_device)
+#define _FACTORY _ABSTRACT(dx_factory)
+#define _ADAPTER _ABSTRACT(dx_adapter)
 
 HL_PRIM ID3D12Device* HL_NAME(get_device)() {
 	dx_driver* drv = static_driver;
 	return drv->device;
 }
 
-typedef IDXGIAdapter dx_adapter;
-
-#define _ADAPTER _ABSTRACT(dx_adapter)
+HL_PRIM IDXGIFactory* HL_NAME(get_factory)() {
+#ifndef HL_XBS
+	dx_driver* drv = static_driver;
+	return drv->factory;
+#else
+	return NULL;
+#endif
+}
 
 HL_PRIM IDXGIAdapter* HL_NAME(get_adapter)() {
 	dx_driver* drv = static_driver;
 	return drv->adapter;
 }
+
+HL_PRIM void HL_NAME(set_device)(ID3D12Device2* device) {
+	dx_driver* drv = static_driver;
+	drv->device = device;
+}
+
+HL_PRIM void HL_NAME(set_factory)(IDXGIFactory* factory) {
+#ifndef HL_XBS
+	dx_driver* drv = static_driver;
+	drv->factory = static_cast<IDXGIFactory4*>(factory);
+#endif
+}
+
+DEFINE_PRIM(_DEVICE, get_device, _NO_ARG);
+DEFINE_PRIM(_FACTORY, get_factory, _NO_ARG);
+DEFINE_PRIM(_ADAPTER, get_adapter, _NO_ARG);
+DEFINE_PRIM(_VOID, set_device, _DEVICE);
+DEFINE_PRIM(_VOID, set_factory, _FACTORY);
 
 HL_PRIM void dx12_flush_messages();
 
@@ -239,14 +472,8 @@ HL_PRIM dx_driver *HL_NAME(create)( HWND window, DriverInitFlag flags, uchar *de
 	}
 #endif
 
-	{
-		D3D12_COMMAND_QUEUE_DESC desc = {};
-		desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-		desc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
-		desc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-		desc.NodeMask = CURRENT_NODEMASK;
-		CHKERR(drv->device->CreateCommandQueue(&desc, IID_PPV_ARGS(&drv->commandQueue)));
-	}
+	if (GpuCrashTracker::s_pfnOnGpuCrashFile)
+		drv->gpuCrashTracker = new GpuCrashTracker(drv->device);
 
 	static_driver = drv;
 	return drv;
@@ -278,21 +505,7 @@ HL_PRIM int64 HL_NAME(get_driver_version)() {
 	return v.i64;
 }
 
-HL_PRIM void HL_NAME(suspend)() {
-#ifdef HL_XBS
-	// Must be called from the render thread
-	CHKERR(static_driver->commandQueue->SuspendX(0));
-#endif
-}
-
-HL_PRIM void HL_NAME(resume)() {
-#ifdef HL_XBS
-	CHKERR(static_driver->commandQueue->ResumeX());
-	register_frame_events();
-#endif
-}
-
-HL_PRIM void HL_NAME(resize)( int width, int height, int buffer_count, DXGI_FORMAT format ) {
+HL_PRIM void HL_NAME(resize)( ID3D12CommandQueue* directQueue, int width, int height, int buffer_count, DXGI_FORMAT format ) {
 	dx_driver *drv = static_driver;
 #ifndef HL_XBS
 	if( drv->swapchain ) {
@@ -309,7 +522,7 @@ HL_PRIM void HL_NAME(resize)( int width, int height, int buffer_count, DXGI_FORM
 		desc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 
 		IDXGISwapChain1 *swapchain = NULL;
-		drv->factory->CreateSwapChainForHwnd(drv->commandQueue,drv->wnd,&desc,NULL,NULL,&swapchain);
+		drv->factory->CreateSwapChainForHwnd(directQueue,drv->wnd,&desc,NULL,NULL,&swapchain);
 		if( !swapchain ) CHKERR(E_INVALIDARG);
 		swapchain->QueryInterface(IID_PPV_ARGS(&drv->swapchain));
 		drv->factory->MakeWindowAssociation(drv->wnd, DXGI_MWA_NO_ALT_ENTER);
@@ -342,39 +555,12 @@ HL_PRIM void HL_NAME(resize)( int width, int height, int buffer_count, DXGI_FORM
 #endif
 }
 
-HL_PRIM void HL_NAME(present)( bool vsync ) {
-	dx_driver *drv = static_driver;
-#ifndef HL_XBS
-	UINT syncInterval = vsync ? 1 : 0;
-	UINT presentFlags = syncInterval == 0 ? DXGI_PRESENT_ALLOW_TEARING : 0;
-	CHKERR(drv->swapchain->Present(syncInterval, presentFlags));
-#else
-	D3D12XBOX_PRESENT_PLANE_PARAMETERS planeParameters = {};
-	planeParameters.Token = drv->pipelineToken;
-	planeParameters.ResourceCount = 1;
-	planeParameters.ppResources = &drv->swapBuffers[drv->backBufferIndex];
-	CHKERR(drv->commandQueue->PresentX(1, &planeParameters, nullptr));
-	drv->backBufferIndex = (drv->backBufferIndex + 1) % drv->swapBufferCount;
-	// Prepare next pipeline token
-	drv->pipelineToken = D3D12XBOX_FRAME_PIPELINE_TOKEN_NULL;
-	CHKERR(drv->device->WaitFrameEventX(D3D12XBOX_FRAME_EVENT_ORIGIN, INFINITE, nullptr, D3D12XBOX_WAIT_FRAME_EVENT_FLAG_NONE, &drv->pipelineToken));
-#endif
-}
-
 HL_PRIM int HL_NAME(get_current_back_buffer_index)() {
 #ifndef HL_XBS
 	return static_driver->swapchain->GetCurrentBackBufferIndex();
 #else
 	return static_driver->backBufferIndex;
 #endif
-}
-
-HL_PRIM void HL_NAME(signal)( ID3D12Fence *fence, int64 value ) {
-	static_driver->commandQueue->Signal(fence,value);
-}
-
-HL_PRIM void HL_NAME(wait)( ID3D12Fence* fence, int64 value ) {
-	static_driver->commandQueue->Wait(fence,value);
 }
 
 HL_PRIM void HL_NAME(flush_messages)() {
@@ -417,12 +603,6 @@ HL_PRIM const uchar *HL_NAME(get_device_name)() {
 	return (uchar*)hl_copy_bytes((vbyte*)desc.Description, (int)(ustrlen((uchar*)desc.Description) + 1) * 2);
 }
 
-HL_PRIM int64 HL_NAME(get_timestamp_frequency)() {
-	UINT64 f = 0;
-	CHKERR(static_driver->commandQueue->GetTimestampFrequency(&f));
-	return (int64)f;
-}
-
 #ifndef HL_XBS
 HL_PRIM void HL_NAME(query_video_memory_info)( int group, DXGI_QUERY_VIDEO_MEMORY_INFO *mem ) {
 	CHKERR(static_driver->adapter->QueryVideoMemoryInfo(0,(DXGI_MEMORY_SEGMENT_GROUP)group,mem));
@@ -437,19 +617,11 @@ HL_PRIM void HL_NAME(query_video_memory_info)( int group, void *mem ) {
 
 DEFINE_PRIM(_ARR, list_devices, _NO_ARG);
 DEFINE_PRIM(_DRIVER, create, _ABSTRACT(dx_window) _I32 _BYTES);
-DEFINE_PRIM(_DEVICE, get_device, _NO_ARG);
-DEFINE_PRIM(_ADAPTER, get_adapter, _NO_ARG);
-DEFINE_PRIM(_VOID, resize, _I32 _I32 _I32 _I32);
-DEFINE_PRIM(_VOID, present, _BOOL);
-DEFINE_PRIM(_VOID, suspend, _NO_ARG);
-DEFINE_PRIM(_VOID, resume, _NO_ARG);
+DEFINE_PRIM(_VOID, resize, _RES _I32 _I32 _I32 _I32);
 DEFINE_PRIM(_I32, get_current_back_buffer_index, _NO_ARG);
-DEFINE_PRIM(_VOID, signal, _RES _I64);
-DEFINE_PRIM(_VOID, wait, _RES _I64);
 DEFINE_PRIM(_VOID, flush_messages, _NO_ARG);
 DEFINE_PRIM(_VOID, suppress_debug_messages, _STRUCT);
 DEFINE_PRIM(_BYTES, get_device_name, _NO_ARG);
-DEFINE_PRIM(_I64, get_timestamp_frequency, _NO_ARG);
 DEFINE_PRIM(_I64, get_driver_version, _NO_ARG);
 DEFINE_PRIM(_VOID, query_video_memory_info, _I32 _STRUCT);
 
@@ -649,6 +821,8 @@ HL_PRIM void HL_NAME(resource_release)( IUnknown *res ) {
 
 HL_PRIM void HL_NAME(resource_set_name)( ID3D12Resource *res, vbyte *name ) {
 	res->SetName((LPCWSTR)name);
+	if (static_driver->gpuCrashTracker)
+		static_driver->gpuCrashTracker->OnResourceSetName(res);
 }
 
 HL_PRIM void *HL_NAME(resource_map)( ID3D12Resource *res, int subres, D3D12_RANGE *range ) {
@@ -792,6 +966,8 @@ HL_PRIM ID3D12RootSignature *HL_NAME(rootsignature_create)( vbyte *bytes, int le
 }
 
 HL_PRIM ID3D12PipelineState *HL_NAME(create_graphics_pipeline_state)( D3D12_GRAPHICS_PIPELINE_STATE_DESC *desc ) {
+	if (static_driver->gpuCrashTracker)
+		static_driver->gpuCrashTracker->OnCreateGraphicsPipeline(desc);
 	ID3D12PipelineState *state = NULL;
 	// if shader is considered invalid, maybe you're missing dxil.dll
 	DXERR(static_driver->device->CreateGraphicsPipelineState(desc,IID_PPV_ARGS(&state)));
@@ -799,6 +975,8 @@ HL_PRIM ID3D12PipelineState *HL_NAME(create_graphics_pipeline_state)( D3D12_GRAP
 }
 
 HL_PRIM ID3D12PipelineState *HL_NAME(create_compute_pipeline_state)( D3D12_COMPUTE_PIPELINE_STATE_DESC *desc ) {
+	if (static_driver->gpuCrashTracker)
+		static_driver->gpuCrashTracker->OnCreateComputePipeline(desc);
 	ID3D12PipelineState *state = NULL;
 	// if shader is considered invalid, maybe you're missing dxil.dll
 	DXERR(static_driver->device->CreateComputePipelineState(desc,IID_PPV_ARGS(&state)));
@@ -869,7 +1047,10 @@ HL_PRIM HANDLE HL_NAME(waitevent_create)( bool initState ) {
 }
 
 HL_PRIM bool HL_NAME(waitevent_wait)( HANDLE event, int time ) {
-	return WaitForSingleObject(event,time) == 0;
+	hl_blocking(true);
+	bool ret = WaitForSingleObject(event,time) == 0;
+	hl_blocking(false);
+	return ret;
 }
 
 #define _EVENT _ABSTRACT(dx_event)
@@ -911,6 +1092,45 @@ HL_PRIM void HL_NAME(command_queue_wait)(ID3D12CommandQueue* q, ID3D12Fence* fen
 	q->Wait(fence, value);
 }
 
+HL_PRIM void HL_NAME(command_queue_present)(ID3D12CommandQueue* q, bool vsync) {
+	dx_driver *drv = static_driver;
+#ifndef HL_XBS
+	UINT syncInterval = vsync ? 1 : 0;
+	UINT presentFlags = syncInterval == 0 ? DXGI_PRESENT_ALLOW_TEARING : 0;
+	CHKERR(drv->swapchain->Present(syncInterval, presentFlags));
+#else
+	D3D12XBOX_PRESENT_PLANE_PARAMETERS planeParameters = {};
+	planeParameters.Token = drv->pipelineToken;
+	planeParameters.ResourceCount = 1;
+	planeParameters.ppResources = &drv->swapBuffers[drv->backBufferIndex];
+	CHKERR(q->PresentX(1, &planeParameters, nullptr));
+	drv->backBufferIndex = (drv->backBufferIndex + 1) % drv->swapBufferCount;
+	// Prepare next pipeline token
+	drv->pipelineToken = D3D12XBOX_FRAME_PIPELINE_TOKEN_NULL;
+	CHKERR(drv->device->WaitFrameEventX(D3D12XBOX_FRAME_EVENT_ORIGIN, INFINITE, nullptr, D3D12XBOX_WAIT_FRAME_EVENT_FLAG_NONE, &drv->pipelineToken));
+#endif
+}
+
+HL_PRIM void HL_NAME(command_queue_suspend)(ID3D12CommandQueue* q) {
+#ifdef HL_XBS
+	// Must be called from the render thread
+	CHKERR(q->SuspendX(0));
+#endif
+}
+
+HL_PRIM void HL_NAME(command_queue_resume)(ID3D12CommandQueue* q) {
+#ifdef HL_XBS
+	CHKERR(q->ResumeX());
+	register_frame_events();
+#endif
+}
+
+HL_PRIM int64 HL_NAME(command_queue_get_timestamp_frequency)(ID3D12CommandQueue* q) {
+	UINT64 f = 0;
+	CHKERR(q->GetTimestampFrequency(&f));
+	return (int64)f;
+}
+
 HL_PRIM ID3D12CommandAllocator *HL_NAME(command_allocator_create)( D3D12_COMMAND_LIST_TYPE type ) {
 	ID3D12CommandAllocator *a = NULL;
 	DXERR(static_driver->device->CreateCommandAllocator(type,IID_PPV_ARGS(&a)));
@@ -933,11 +1153,6 @@ HL_PRIM void HL_NAME(command_list_close)( ID3D12GraphicsCommandList *l ) {
 
 HL_PRIM void HL_NAME(command_list_reset)( ID3D12GraphicsCommandList *l, ID3D12CommandAllocator *alloc, ID3D12PipelineState *state ) {
 	CHKERR(l->Reset(alloc,state));
-}
-
-HL_PRIM void HL_NAME(command_list_execute)( ID3D12GraphicsCommandList *l ) {
-	ID3D12CommandList* const commandLists[] = { l };
-	static_driver->commandQueue->ExecuteCommandLists(1, commandLists);
 }
 
 HL_PRIM void HL_NAME(command_list_resource_barrier)( ID3D12GraphicsCommandList *l, D3D12_RESOURCE_BARRIER *barrier ) {
@@ -1086,6 +1301,10 @@ DEFINE_PRIM(_VOID, command_queue_execute_command_list, _RES _RES);
 DEFINE_PRIM(_VOID, command_queue_execute_command_lists, _RES _ABSTRACT(hl_carray) _I32);
 DEFINE_PRIM(_VOID, command_queue_signal, _RES _RES _I64);
 DEFINE_PRIM(_VOID, command_queue_wait, _RES _RES _I64);
+DEFINE_PRIM(_VOID, command_queue_present, _RES _BOOL);
+DEFINE_PRIM(_VOID, command_queue_suspend, _RES);
+DEFINE_PRIM(_VOID, command_queue_resume, _RES);
+DEFINE_PRIM(_I64, command_queue_get_timestamp_frequency, _RES);
 DEFINE_PRIM(_RES, command_allocator_create, _I32);
 DEFINE_PRIM(_VOID, command_allocator_reset, _RES);
 DEFINE_PRIM(_RES, command_list_create, _I32 _RES _RES);
@@ -1093,7 +1312,6 @@ DEFINE_PRIM(_VOID, command_list_close, _RES);
 DEFINE_PRIM(_VOID, command_list_reset, _RES _RES _RES);
 DEFINE_PRIM(_VOID, command_list_resource_barrier, _RES _STRUCT);
 DEFINE_PRIM(_VOID, command_list_resource_barriers, _RES _ABSTRACT(hl_carray) _I32);
-DEFINE_PRIM(_VOID, command_list_execute, _RES);
 DEFINE_PRIM(_VOID, command_list_clear_render_target_view, _RES _I64 _STRUCT);
 DEFINE_PRIM(_VOID, command_list_clear_depth_stencil_view, _RES _I64 _I32 _F32 _I32);
 DEFINE_PRIM(_VOID, command_list_draw_instanced, _RES _I32 _I32 _I32 _I32);
@@ -1137,3 +1355,19 @@ HL_PRIM int HL_NAME(get_constant)(int index) {
 }
 
 DEFINE_PRIM(_I32, get_constant, _I32);
+
+
+HL_PRIM void HL_NAME(set_gpu_crash_handler)(vclosure* c)
+{
+	if (!GpuCrashTracker::s_pfnOnGpuCrashFile)
+	{
+		if (!c) return;
+		hl_add_root(&GpuCrashTracker::s_pfnOnGpuCrashFile);
+	}
+	GpuCrashTracker::s_pfnOnGpuCrashFile = c;
+	dx_driver* drv = static_driver;
+	if (drv && !drv->gpuCrashTracker)
+		drv->gpuCrashTracker = new GpuCrashTracker(drv->device);
+}
+
+DEFINE_PRIM(_VOID, set_gpu_crash_handler, _FUN(_VOID, _BYTES _BYTES _I32 _BOOL));

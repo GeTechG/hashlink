@@ -8,6 +8,8 @@ typedef Device = hl.Abstract<"dx_device">;
 
 typedef Adapter = hl.Abstract<"dx_adapter">;
 
+typedef Factory = hl.Abstract<"dx_factory">;
+
 enum DriverInitFlag {
 	DEBUG;
 	GPU_BASED_VALIDATION;
@@ -76,6 +78,11 @@ abstract CommandQueue(Resource) {
 	public function executeCommandLists( commandLists : hl.CArray<CommandList>, count : Int ) {}
 	public function signal( fence : Fence, value : Int64 ) {}
 	public function wait( fence : Fence, value : Int64 ) {}
+	public function present( vsync : Bool ) {}
+	public function suspend() {}
+	public function resume() {}
+	@:hlNative("dx12","command_queue_get_timestamp_frequency")
+	public function getTimestampFrequency() : Int64 { return 0; }
 	static function create( type : CommandListType ) : Resource { return null; }
 }
 
@@ -200,7 +207,6 @@ abstract CommandList(Resource) {
 	}
 
 	public function close() {}
-	public function execute() {}
 	public function clearRenderTargetView( rtv : Address, color : ClearColor ) {}
 	public function clearDepthStencilView( rtv : Address, flags : ClearFlags, depth : Single, stencil : Int ) {}
 	public function reset( alloc : CommandAllocator, state : PipelineState ) {}
@@ -1669,8 +1675,18 @@ class Dx12 {
 		return null;
 	}
 
+	public static function getFactory() : Factory {
+		return null;
+	}
+
 	public static function getAdapter() : Adapter {
 		return null;
+	}
+
+	public static function setDevice(device : Device) {
+	}
+
+	public static function setFactory(factory : Factory) {
 	}
 
 	public static function flushMessages() {
@@ -1736,26 +1752,11 @@ class Dx12 {
 		return null;
 	}
 
-	public static function resize( width : Int, height : Int, bufferCount : Int, format : DxgiFormat ) {
+	public static function resize( directQueue : CommandQueue, width : Int, height : Int, bufferCount : Int, format : DxgiFormat ) {
 	}
 
 	public static function updateSubResource( commandList : CommandList, dst : GpuResource, src : GpuResource, srcOffset : Int64, first : Int, count : Int, data : SubResourceData ) : Bool {
 		return false;
-	}
-
-	public static function signal( fence : Fence, value : Int64 ) {
-	}
-
-	public static function wait( fence : Fence, value : Int64 ) {
-	}
-
-	public static function present( vsync : Bool ) {
-	}
-
-	public static function suspend() {
-	}
-
-	public static function resume() {
 	}
 
 	public static function getConstant( index : Int ) : Int {
@@ -1782,11 +1783,6 @@ class Dx12 {
 		return out;
 	}
 
-	@:hlNative("dx12","get_timestamp_frequency")
-	public static function getTimestampFrequency() : Int64 {
-		return 0;
-	}
-
 	@:hlNative("dx12", "list_devices")
 	static function dxListDevices() : hl.NativeArray<hl.Bytes> {
 		return null;
@@ -1809,5 +1805,9 @@ class Dx12 {
 	@:hlNative("dx12", "create")
 	static function dxCreate( win : hl.Abstract<"dx_window">, flags : DriverInitFlags, deviceName : hl.Bytes ) : DriverInstance {
 		return null;
+	}
+
+	@:hlNative("dx12", "set_gpu_crash_handler")
+	public static function setGpuCrashHandler( f : (name : hl.Bytes, bytes : hl.Bytes, size : Int, lastFile : Bool) -> Void ) {
 	}
 }
