@@ -162,7 +162,7 @@ static int load_plugin_id( pchar *file ) {
 	hl_module *m = hl_module_alloc(code);
 	if( m == NULL )
 		return -1;
-	if( !hl_module_init(m,false) )
+	if( !hl_module_init(m,0) )
 		return -1;
 	hl_code_free(code);
 	// register, reusing a freed slot so the table does not grow per reload
