@@ -1173,8 +1173,10 @@ void hl_module_free( hl_module *m ) {
 	free(m->globals_data);
 	if( m->jit_debug ) {
 		int i;
-		for(i=0;i<m->code->nfunctions;i++)
+		for(i=0;i<m->code->nfunctions;i++) {
 			free(m->jit_debug[i].offsets);
+			free(m->jit_debug[i].vars);
+		}
 		free(m->jit_debug);
 	}
 	if( m->jit_ctx )

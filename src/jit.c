@@ -160,6 +160,8 @@ void hl_jit_free( jit_ctx *ctx, h_bool can_reset ) {
 	hl_regs_free(ctx);
 	hl_emit_free(ctx);
 	hl_free(&ctx->falloc);
+	hl_free(&ctx->galloc);
+	free(ctx->output);
 	free(ctx);
 }
 
@@ -359,8 +361,11 @@ void *hl_jit_code( jit_ctx *ctx, hl_module *m, int *codesize, hl_debug_infos **d
 	hl_codegen_final(ctx);
 	arg_reg_count = ctx->cfg.regs.nargs;
 	arg_fp_count = ctx->cfg.floats.nargs;
-	call_jit_c2hl = ctx->final_code + ctx->code_funs.c2hl;
-	call_jit_hl2c = ctx->final_code + ctx->code_funs.hl2c;
+	// keep the first module's stubs : later modules (plugins) can be unloaded (hl_module_remove)
+	if( call_jit_c2hl == hl_jit_assert ) {
+		call_jit_c2hl = ctx->final_code + ctx->code_funs.c2hl;
+		call_jit_hl2c = ctx->final_code + ctx->code_funs.hl2c;
+	}
 #	ifdef WIN64_UNWIND_TABLES
 	ctx->mod->unwind_table_size = ctx->fdef_index;
 #	endif
