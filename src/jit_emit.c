@@ -291,7 +291,8 @@ static ereg new_value( emit_ctx *ctx ) {
 }
 
 static ereg *get_tmp_args( emit_ctx *ctx, int count ) {
-	if( count > MAX_TMP_ARGS ) jit_error("Too many arguments");
+	if( count > MAX_TMP_ARGS )
+		return (ereg*)hl_malloc(&ctx->jit->falloc, sizeof(ereg) * count);
 	return ctx->tmp_args;
 }
 
