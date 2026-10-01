@@ -349,6 +349,7 @@ struct _code_ctx {
 	byte_arr const_table;
 	int_arr const_refs;
 	int_arr const_addr;
+	int_arr far_funs;
 	int *pos_map;
 	int cur_op;
 	bool flushed;
@@ -1791,6 +1792,9 @@ static void flush_function( code_ctx *ctx, int start ) {
 
 void hl_codegen_init( jit_ctx *jit ) {
 	code_ctx *ctx = jit->code;
+	// the context might have been used for a previous module (hl_jit_reset)
+	ctx->flushed = false;
+	byte_free(&ctx->code);
 	byte_reserve(ctx->code,1024);
 	ctx->code.cur -= 1024;
 
@@ -1957,20 +1961,37 @@ void hl_codegen_free( jit_ctx *jit ) {
 	free(ctx);
 }
 
-void hl_codegen_flush_consts( jit_ctx *jit ) {
+bool hl_codegen_flush_consts( jit_ctx *jit, hl_module *previous ) {
 	code_ctx *ctx = jit->code;
+	ctx->const_table_pos = jit->out_pos;
 	// patch function offsets
 	for(int i=0;i<int_arr_count(ctx->funs);i+=2) {
 		int pos = int_arr_get(ctx->funs,i);
 		int fid = int_arr_get(ctx->funs,i+1);
-		int offset = (int)(int_val)jit->mod->functions_ptrs[fid] - (pos + 4);
+		void *fpos = jit->mod->functions_ptrs[fid];
+		if( fpos == NULL ) {
+			// not compiled in this module (hot reload) : go through a thunk
+			// holding the absolute address in the previous module
+			// one thunk per reference, could be shared per function if size matters
+			void *fabs = hl_jit_previous_function(jit->mod, previous, fid);
+			if( fabs == NULL ) return false;
+			int tpos = reserve_const_segment(ctx,16,8);
+			unsigned char *t = byte_addr(ctx->const_table,tpos);
+			// jmp [rip+2]
+			t[0] = 0xFF; t[1] = 0x25; t[2] = 2; t[3] = 0; t[4] = 0; t[5] = 0;
+			t[6] = 0xCC; t[7] = 0xCC;
+			*(void**)(t + 8) = fabs;
+			int_arr_add_impl(&jit->galloc,&ctx->far_funs,pos);
+			int_arr_add_impl(&jit->galloc,&ctx->far_funs,tpos);
+			fpos = (void*)(int_val)(ctx->const_table_pos + tpos);
+		}
+		int offset = (int)(int_val)fpos - (pos + 4);
 		*(int*)(jit->output + pos) = offset;
 	}
 	int_arr_reset(&ctx->funs);
 	// emit constant table
 	jit->code_size = byte_count(ctx->const_table);
 	jit->code_instrs = ctx->const_table.values;
-	ctx->const_table_pos = jit->out_pos;
 	// patch constant offsets
 	for(int i=0;i<int_arr_count(ctx->const_refs);i+=2) {
 		int pos = int_arr_get(ctx->const_refs,i);
@@ -1982,6 +2003,7 @@ void hl_codegen_flush_consts( jit_ctx *jit ) {
 	// cleanup
 	byte_free(&ctx->const_table);
 	value_map_free(&ctx->const_table_lookup);
+	return true;
 }
 
 void hl_codegen_final( jit_ctx *jit ) {
@@ -1993,6 +2015,17 @@ void hl_codegen_final( jit_ctx *jit ) {
 		*(void**)(jit->final_code + ctx->const_table_pos + pos) = jit->final_code + offs;
 	}
 	int_arr_free(&ctx->const_addr);
+	// previous module functions : skip the thunk when the target is in rel32 range,
+	// this also keeps the function address the same for closures (LOAD_FUN)
+	for(int i=0;i<int_arr_count(ctx->far_funs);i+=2) {
+		int pos = int_arr_get(ctx->far_funs,i);
+		int tpos = int_arr_get(ctx->far_funs,i+1);
+		unsigned char *fabs = *(unsigned char**)(jit->final_code + ctx->const_table_pos + tpos + 8);
+		int_val delta = fabs - (jit->final_code + pos + 4);
+		if( delta == (int)delta )
+			*(int*)(jit->final_code + pos) = (int)delta;
+	}
+	int_arr_reset(&ctx->far_funs);
 }
 
 // redirect an already compiled function through a functions table entry,

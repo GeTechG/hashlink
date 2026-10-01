@@ -1217,13 +1217,21 @@ void hl_emit_free( jit_ctx *jit ) {
 	jit->emit = NULL;
 }
 
-void hl_emit_final( jit_ctx *jit ) {
+void hl_emit_final( jit_ctx *jit, hl_module *previous ) {
 	emit_ctx *ctx = jit->emit;
 	vclosure *l = ctx->closure_list;
 	while( l ) {
 		vclosure *n = (vclosure*)l->value;
 		l->value = NULL;
-		l->fun = jit->final_code + (int_val)jit->mod->functions_ptrs[(int_val)l->fun];
+		int fid = (int)(int_val)l->fun;
+		void *fpos = jit->mod->functions_ptrs[fid];
+		if( fpos )
+			l->fun = jit->final_code + (int_val)fpos;
+		else {
+			// not compiled in this module (hot reload)
+			l->fun = hl_jit_previous_function(jit->mod, previous, fid);
+			if( l->fun == NULL ) l->fun = hl_jit_assert;
+		}
 		l = n;
 	}
 	ctx->closure_list = NULL;
