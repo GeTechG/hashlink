@@ -1,0 +1,4 @@
+-cp .
+-main PluginMain
+--macro addGlobalMetadata('shared','@:virtual',true,true,false)
+--macro exclude('shared',true)

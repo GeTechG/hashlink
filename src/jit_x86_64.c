@@ -1994,3 +1994,21 @@ void hl_codegen_final( jit_ctx *jit ) {
 	}
 	int_arr_free(&ctx->const_addr);
 }
+
+// redirect an already compiled function through a functions table entry,
+// so later updates of the entry (hot reload) are followed as well
+void hl_jit_patch_method( void *old_fun, void **new_fun_table ) {
+	// mov eax, addr
+	// jmp [eax]
+	// functions are aligned on 16 bytes, so this always fits : rax is neither
+	// an argument register nor preserved in any of our calling conventions
+	unsigned char *b = (unsigned char*)old_fun;
+#	ifdef HL_64
+	*b++ = 0x48;
+#	endif
+	*b++ = 0xB8;
+	memcpy(b,&new_fun_table,sizeof(void*));
+	b += sizeof(void*);
+	*b++ = 0xFF;
+	*b++ = 0x20;
+}
