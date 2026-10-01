@@ -278,6 +278,14 @@ class Window {
 		return v;
 	}
 
+	/** Enable IME / text input events for this window. */
+	public function startTextInput() winStartTextInput(win);
+
+	public function stopTextInput() winStopTextInput(win);
+
+	/** Tell the IME where to place its candidate window (window coordinates). */
+	public function setTextInputArea( x : Int, y : Int, w : Int, h : Int, cursor : Int = 0 ) winSetTextInputArea(win, x, y, w, h, cursor);
+
 	function get_grab() {
 		return getWindowGrab(win);
 	}
@@ -419,6 +427,15 @@ class Window {
 	@:hlNative("?sdl", "win_raise")
 	static function winRaise( win : WinPtr ) {
 	}
+
+	@:hlNative("?sdl", "win_start_text_input")
+	static function winStartTextInput( win : WinPtr ) {}
+
+	@:hlNative("?sdl", "win_stop_text_input")
+	static function winStopTextInput( win : WinPtr ) {}
+
+	@:hlNative("?sdl", "win_set_text_input_area")
+	static function winSetTextInputArea( win : WinPtr, x : Int, y : Int, w : Int, h : Int, cursor : Int ) {}
 
 	static function winSetOpacity( win : WinPtr, opacity : Float ) : Bool {
 		return false;

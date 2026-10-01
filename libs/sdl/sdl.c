@@ -45,6 +45,7 @@ typedef enum {
 	KeyDown,
 	KeyUp,
 	TextInput,
+	TextEditing,
 	GControllerAdded = 100,
 	GControllerRemoved,
 	GControllerDown,
@@ -101,6 +102,7 @@ typedef struct {
 	int __unused;
 	int window;
 	vbyte* dropFile;
+	vbyte* text;
 } event_data;
 
 static bool isGlOptionsSet = false;
@@ -303,8 +305,12 @@ HL_PRIM bool HL_NAME(event_loop)( event_data *event ) {
 			event->mouseY = e.wheel.y;
 			break;
 		case SDL_EVENT_TEXT_EDITING:
-			// skip
-			continue;
+			event->type = TextEditing;
+			event->window = e.edit.windowID;
+			event->text = hl_copy_bytes((vbyte*)e.edit.text, (int)strlen(e.edit.text) + 1);
+			event->value = e.edit.start;
+			event->reference = e.edit.length;
+			break;
 		case SDL_EVENT_TEXT_INPUT:
 			event->type = TextInput;
 			event->window = e.text.windowID;
@@ -741,6 +747,19 @@ HL_PRIM void HL_NAME(win_set_title)(SDL_Window *win, vbyte *title) {
 	SDL_SetWindowTitle(win, (char*)title);
 }
 
+HL_PRIM void HL_NAME(win_start_text_input)(SDL_Window *win) {
+	SDL_StartTextInput(win);
+}
+
+HL_PRIM void HL_NAME(win_stop_text_input)(SDL_Window *win) {
+	SDL_StopTextInput(win);
+}
+
+HL_PRIM void HL_NAME(win_set_text_input_area)(SDL_Window *win, int x, int y, int w, int h, int cursor) {
+	SDL_Rect r = { x, y, w, h };
+	SDL_SetTextInputArea(win, &r, cursor);
+}
+
 HL_PRIM void HL_NAME(win_set_icon)(SDL_Window *win, SDL_Surface *s) {
 	SDL_SetWindowIcon(win, s);
 }
@@ -868,6 +887,9 @@ DEFINE_PRIM(_I32, win_display_handle, TWIN);
 DEFINE_PRIM(_VOID, win_resize, TWIN _I32);
 DEFINE_PRIM(_VOID, win_raise, TWIN);
 DEFINE_PRIM(_VOID, win_set_title, TWIN _BYTES);
+DEFINE_PRIM(_VOID, win_start_text_input, TWIN);
+DEFINE_PRIM(_VOID, win_stop_text_input, TWIN);
+DEFINE_PRIM(_VOID, win_set_text_input_area, TWIN _I32 _I32 _I32 _I32 _I32);
 DEFINE_PRIM(_VOID, win_set_icon, TWIN _SURF);
 DEFINE_PRIM(_VOID, win_set_position, TWIN _I32 _I32);
 DEFINE_PRIM(_VOID, win_get_position, TWIN _REF(_I32) _REF(_I32));
