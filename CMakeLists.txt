@@ -309,6 +309,26 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # plugin.hl (HL plugins need Haxe 5)
+
+    execute_process(COMMAND ${HAXE_COMPILER} --version
+        OUTPUT_VARIABLE HAXE_VERSION ERROR_VARIABLE HAXE_VERSION)
+    if(HAXE_VERSION MATCHES "^[5-9]")
+        foreach(name plugin host)
+            add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_${name}.hl
+                COMMAND ${HAXE_COMPILER}
+                    ${HAXE_HL_FLAGS}
+                    --cwd ${CMAKE_SOURCE_DIR}/other/tests/plugin ${name}.hxml
+                    -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_${name}.hl
+            )
+        endforeach()
+        add_custom_target(plugin.hl ALL
+            DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_plugin.hl
+                ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_host.hl
+        )
+    endif()
+
+    #####################
     # uvsample.hl
 
     add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/uvsample.hl
@@ -426,6 +446,12 @@ if(BUILD_TESTING)
         add_test(NAME manyargs.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/manyargs.hl
         )
+        if(TARGET plugin.hl)
+            add_test(NAME plugin.hl
+                COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_host.hl
+                    ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_plugin.hl
+            )
+        endif()
         add_test(NAME uvsample.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/uvsample.hl 6001
         )

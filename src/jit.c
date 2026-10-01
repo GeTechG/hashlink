@@ -373,7 +373,3 @@ void *hl_jit_code( jit_ctx *ctx, hl_module *m, int *codesize, hl_debug_infos **d
 	hl_setup.static_call = callback_c2hl;
 	return code;
 }
-
-void hl_jit_patch_method( void*fun, void**newt ) {
-	jit_assert();
-}
