@@ -296,6 +296,19 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # manyargs.hl
+
+    add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/manyargs.hl
+        COMMAND ${HAXE_COMPILER}
+            ${HAXE_HL_FLAGS}
+            -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/manyargs.hl
+            -cp ${CMAKE_SOURCE_DIR}/other/tests -main ManyArgs
+    )
+    add_custom_target(manyargs.hl ALL
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/manyargs.hl
+    )
+
+    #####################
     # uvsample.hl
 
     add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/uvsample.hl
@@ -409,6 +422,9 @@ if(BUILD_TESTING)
         )
         add_test(NAME threads.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/threads.hl
+        )
+        add_test(NAME manyargs.hl
+            COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/manyargs.hl
         )
         add_test(NAME uvsample.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/uvsample.hl 6001
