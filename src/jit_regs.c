@@ -74,6 +74,7 @@ struct _regs_ctx {
 	int *ncalls;
 	int_arr jump_regs;
 	int_arr pack_movs;
+	int_arr push_args;
 	int_arr *blocks_phis;
 	int max_instrs;
 	int cur_op;
@@ -741,14 +742,13 @@ static void regs_emit_instrs( regs_ctx *ctx ) {
 			ereg *args = hl_emit_get_args(ctx->jit->emit,&e);
 			call_regs regs = {0};
 			int stack_args = 0;
-			int stack_bits = 0;
 			for(int k=0;k<e.nargs;k++) {
 				value_info *v = REG_IS_VAL(args[k]) ? VAL_REG(args[k]) : NULL;
 				emit_mode mode = v ? v->mode : M_I32;
 				ereg r = get_call_reg(ctx,regs,mode);
 				if( IS_NULL(r) ) {
 					stack_args += get_stack_size(mode);
-					stack_bits |= 1 << k;
+					int_arr_add(ctx->push_args,k);
 				} else if( !v || r != v->reg ) {
 					int_arr_add(ctx->pack_movs,r);
 					int_arr_add(ctx->pack_movs,v ? v->reg : args[k]);
@@ -763,12 +763,12 @@ static void regs_emit_instrs( regs_ctx *ctx ) {
 				}
 				if( offset )
 					regs_emit(ctx,UNUSED,STACK_OFFS,UNUSED,UNUSED,0,-offset);
-				for(int k=e.nargs-1;k>=0;k--) {
-					if( stack_bits & (1 << k) ) {
-						value_info *v = REG_IS_VAL(args[k]) ? VAL_REG(args[k]) : NULL;
-						EMIT(PUSH,VAL_REG(args[k])->reg,UNUSED,v && IS_FLOAT(v->mode) ? v->mode : M_PTR);
-					}
+				for(int i=int_arr_count(ctx->push_args)-1;i>=0;i--) {
+					int k = int_arr_get(ctx->push_args,i);
+					value_info *v = REG_IS_VAL(args[k]) ? VAL_REG(args[k]) : NULL;
+					EMIT(PUSH,VAL_REG(args[k])->reg,UNUSED,v && IS_FLOAT(v->mode) ? v->mode : M_PTR);
 				}
+				int_arr_reset(&ctx->push_args);
 				if( IS_WINCALL64 ) {
 					regs_emit(ctx,UNUSED,STACK_OFFS,UNUSED,UNUSED,0,-0x20);
 					offset += 0x20;
@@ -976,6 +976,7 @@ void hl_regs_function( jit_ctx *jit ) {
 	values_free(&ctx->persists);
 	int_arr_free(&ctx->jump_regs);
 	int_arr_free(&ctx->pack_movs);
+	int_arr_free(&ctx->push_args);
 	ctx->cur_block = NULL;
 	ctx->ncalls = (int*)hl_zalloc(&jit->falloc,sizeof(int) * (jit->instr_count + 1));
 	for(int i=0;i<jit->instr_count;i++) {
