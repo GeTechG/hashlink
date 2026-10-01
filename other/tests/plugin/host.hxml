@@ -1,0 +1,4 @@
+-cp .
+-main PluginHost
+--macro addGlobalMetadata('shared','@:virtual',true,true,false)
+--macro include('shared')
