@@ -4,7 +4,7 @@ Independent fork of `HaxeFoundation/hashlink` (the HashLink VM for Haxe). Its co
 
 ## Branches and delivery
 - One task — one branch from `master`.
-- Deliver only through a PR to `master`; never push to `master` directly.
+- No pull requests: this fork is worked on solo. When the task is done, run the checks on its branch, then rebase it onto `master` and fast-forward `master` to it (merge instead when a rebase is impractical) and push `master`.
 
 ## Commits
 - Every commit is **code** (everything that exists upstream: sources under `src/`, `libs/`, `include/`, `other/`, build files, the upstream `Build` workflow, tests) or **infrastructure** (the paths listed in `.github/infra-paths`: this file, `openspec/`, our CI and scripts). Never both — CI rejects a mixed commit.
