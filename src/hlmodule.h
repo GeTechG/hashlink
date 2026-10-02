@@ -178,7 +178,9 @@ hl_module *hl_module_alloc( hl_code *code );
 int hl_module_init( hl_module *m, int flags );
 h_bool hl_module_patch( hl_module *m, hl_code *code );
 void hl_module_free( hl_module *m );
-void hl_module_remove( hl_module *m ); // unlink from cur_modules then free (crash-free unload)
+// unlink from cur_modules then free. Unchecked precondition: no live object typed by the module,
+// no closure into its code and no frame of it on any thread stack (see hl_setup.unload_plugin in hl.h)
+void hl_module_remove( hl_module *m );
 h_bool hl_module_debug( hl_module *m, int port, h_bool wait );
 hl_type *hl_module_resolve_type( hl_module *m, hl_type *t, bool err );
 hl_module **hl_get_modules( int *count );

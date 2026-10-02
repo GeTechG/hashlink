@@ -182,6 +182,8 @@ HL_PRIM int hl_sys_load_plugin_id( vbyte *file ) {
 	return hl_setup.load_plugin_id ? hl_setup.load_plugin_id((pchar*)file) : -1;
 }
 
+// Unchecked precondition: no live object, closure or stack frame of the plugin remains, and it must
+// not be called from the plugin itself. The id is reused by later loads (see hl_setup.unload_plugin in hl.h)
 HL_PRIM bool hl_sys_unload_plugin( int id ) {
 	return hl_setup.unload_plugin && hl_setup.unload_plugin(id);
 }

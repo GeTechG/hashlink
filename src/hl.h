@@ -632,6 +632,14 @@ typedef struct {
 	bool (*load_plugin)( pchar *file );
 	// plugin load/unload primitives (see src/main.c, src/std/sys.c)
 	int (*load_plugin_id)( pchar *file );
+	// Frees the plugin's types, runtime objects and JIT code. Nothing is checked: the caller must
+	// ensure that nothing of the plugin is still in use, or the next GC pass, dynamic call or
+	// return will read freed/unmapped memory. Before the call there must be:
+	// - no live object whose type was allocated by the plugin (drop the references, then run a major GC)
+	// - no closure pointing into the plugin code
+	// - no plugin frame on the stack of any thread (so a plugin cannot unload itself)
+	// The id is reused by a later load_plugin_id: an id is invalid once unloaded, and a stale one
+	// will designate another plugin.
 	bool (*unload_plugin)( int id );
 	vdynamic* (*resolve_type)( hl_type *t, hl_type *gt );
 	bool static_call_ref;

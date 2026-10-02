@@ -185,6 +185,7 @@ static int load_plugin_id( pchar *file ) {
 	return id;
 }
 
+// does not check that the plugin is unused, and frees the id for reuse (see hl_setup.unload_plugin in hl.h)
 static bool unload_plugin( int id ) {
 	if( id < 0 || id >= plugins_count || plugins[id] == NULL )
 		return false;
