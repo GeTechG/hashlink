@@ -66,7 +66,8 @@ void hl_jit_assert() {
 void hl_emit_alloc( jit_ctx *jit );
 void hl_emit_free( jit_ctx *jit );
 void hl_emit_function( jit_ctx *jit );
-void hl_emit_final( jit_ctx *jit, hl_module *previous );
+void hl_emit_reset( jit_ctx *jit );
+bool hl_emit_final( jit_ctx *jit, hl_module *previous );
 
 void hl_regs_alloc( jit_ctx *jit );
 void hl_regs_free( jit_ctx *jit );
@@ -176,6 +177,7 @@ void hl_jit_free( jit_ctx *ctx, h_bool can_reset ) {
 void hl_jit_reset( jit_ctx *ctx, hl_module *m ) {
 	ctx->out_pos = 0;
 	ctx->fdef_index = 0;
+	hl_emit_reset(ctx);
 	hl_jit_init(ctx, m);
 	// only some of the functions will be compiled : mark the others as missing
 	if( m->jit_debug ) {
@@ -386,7 +388,10 @@ void *hl_jit_code( jit_ctx *ctx, hl_module *m, int *codesize, hl_debug_infos **d
 	*codesize = size;
 	*debug = m->jit_debug;
 	ctx->final_code = code;
-	hl_emit_final(ctx, previous);
+	if( !hl_emit_final(ctx, previous) ) {
+		hl_free_executable_memory(code, size);
+		return NULL;
+	}
 	hl_codegen_final(ctx);
 	arg_reg_count = ctx->cfg.regs.nargs;
 	arg_fp_count = ctx->cfg.floats.nargs;

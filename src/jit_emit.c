@@ -1217,9 +1217,20 @@ void hl_emit_free( jit_ctx *jit ) {
 	jit->emit = NULL;
 }
 
-void hl_emit_final( jit_ctx *jit, hl_module *previous ) {
+void hl_emit_reset( jit_ctx *jit ) {
+	jit->emit->closure_list = NULL;
+}
+
+bool hl_emit_final( jit_ctx *jit, hl_module *previous ) {
 	emit_ctx *ctx = jit->emit;
 	vclosure *l = ctx->closure_list;
+	// check first : closures are left untouched if one of them can't be resolved
+	for(;l;l=(vclosure*)l->value) {
+		int fid = (int)(int_val)l->fun;
+		if( !jit->mod->functions_ptrs[fid] && !hl_jit_previous_function(jit->mod, previous, fid) )
+			return false;
+	}
+	l = ctx->closure_list;
 	while( l ) {
 		vclosure *n = (vclosure*)l->value;
 		l->value = NULL;
@@ -1227,14 +1238,12 @@ void hl_emit_final( jit_ctx *jit, hl_module *previous ) {
 		void *fpos = jit->mod->functions_ptrs[fid];
 		if( fpos )
 			l->fun = jit->final_code + (int_val)fpos;
-		else {
-			// not compiled in this module (hot reload)
+		else // not compiled in this module (hot reload)
 			l->fun = hl_jit_previous_function(jit->mod, previous, fid);
-			if( l->fun == NULL ) l->fun = hl_jit_assert;
-		}
 		l = n;
 	}
 	ctx->closure_list = NULL;
+	return true;
 }
 
 static bool seal_block_rec( emit_ctx *ctx, emit_block *b, int target ) {

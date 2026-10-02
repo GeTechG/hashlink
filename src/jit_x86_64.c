@@ -1792,9 +1792,16 @@ static void flush_function( code_ctx *ctx, int start ) {
 
 void hl_codegen_init( jit_ctx *jit ) {
 	code_ctx *ctx = jit->code;
-	// the context might have been used for a previous module (hl_jit_reset)
+	// the context might have been used for a previous module (hl_jit_reset) :
+	// drop what it left behind if its code could not be produced
 	ctx->flushed = false;
 	byte_free(&ctx->code);
+	byte_free(&ctx->const_table);
+	value_map_free(&ctx->const_table_lookup);
+	int_arr_reset(&ctx->funs);
+	int_arr_reset(&ctx->const_refs);
+	int_arr_free(&ctx->const_addr);
+	int_arr_reset(&ctx->far_funs);
 	byte_reserve(ctx->code,1024);
 	ctx->code.cur -= 1024;
 
@@ -2030,6 +2037,7 @@ void hl_codegen_final( jit_ctx *jit ) {
 
 // redirect an already compiled function through a functions table entry,
 // so later updates of the entry (hot reload) are followed as well
+// the write is not atomic : no other thread should be entering old_fun meanwhile
 void hl_jit_patch_method( void *old_fun, void **new_fun_table ) {
 	// mov eax, addr
 	// jmp [eax]
