@@ -160,10 +160,15 @@ static int load_plugin_id( pchar *file ) {
 		if( t2 ) t1->obj->name = t2->obj->name;
 	}
 	hl_module *m = hl_module_alloc(code);
-	if( m == NULL )
+	if( m == NULL ) {
+		hl_code_free(code);
 		return -1;
-	if( !hl_module_init(m,0) )
+	}
+	if( !hl_module_init(m,0) ) {
+		hl_module_free(m);
+		hl_code_free(code);
 		return -1;
+	}
 	hl_code_free(code);
 	// register, reusing a freed slot so the table does not grow per reload
 	int id = -1;

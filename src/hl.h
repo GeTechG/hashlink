@@ -631,6 +631,8 @@ typedef struct {
 	void (*vtune_init)();
 	bool (*load_plugin)( pchar *file );
 	// plugin load/unload primitives (see src/main.c, src/std/sys.c)
+	// Returns the plugin id, or -1 if it could not be loaded. An exception thrown by the plugin
+	// entry point is propagated : the plugin then stays loaded and can't be unloaded, as no id was returned.
 	int (*load_plugin_id)( pchar *file );
 	// Frees the plugin's types, runtime objects and JIT code. Nothing is checked: the caller must
 	// ensure that nothing of the plugin is still in use, or the next GC pass, dynamic call or
