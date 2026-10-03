@@ -142,6 +142,15 @@ static bool load_plugin( pchar *file ) {
 	return true;
 }
 
+// The module does not own its code : hl_module_free leaves code->alloc (types, strings, globals,
+// debug infos and the hl_code itself) to its caller, as a hot reload patch keeps using it.
+// Once it is freed, the string and bytes constants of the plugin are gone as well as its types.
+static void free_plugin( hl_module *m ) {
+	hl_code *code = m->code;
+	hl_module_remove(m);
+	hl_free(&code->alloc);
+}
+
 // Plugin load/unload registry. load_plugin (above) keeps no handle to the loaded module, so it
 // can never be freed. These mirror load_plugin but track each loaded plugin by id so the host can
 // later unload that specific module (the editor reloads a project by unload + reload).
@@ -164,11 +173,13 @@ static int load_plugin_id( pchar *file ) {
 	hl_module *m = hl_module_alloc(code);
 	if( m == NULL ) {
 		hl_code_free(code);
+		hl_free(&code->alloc);
 		return -1;
 	}
 	if( !hl_module_init(m,0) ) {
 		hl_module_free(m);
 		hl_code_free(code);
+		hl_free(&code->alloc);
 		return -1;
 	}
 	hl_code_free(code);
@@ -195,7 +206,7 @@ static int load_plugin_id( pchar *file ) {
 		// so only its message is kept and thrown again as a host error (see hl_setup.load_plugin_id in hl.h)
 		vdynamic *err = hl_alloc_strbytes(USTR("Plugin entry point failed : %s"), hl_to_string(exc));
 		plugins[id] = NULL;
-		hl_module_remove(m);
+		free_plugin(m);
 		hl_throw(err);
 	}
 	return id;
@@ -205,7 +216,7 @@ static int load_plugin_id( pchar *file ) {
 static bool unload_plugin( int id ) {
 	if( id < 0 || id >= plugins_count || plugins[id] == NULL )
 		return false;
-	hl_module_remove(plugins[id]);
+	free_plugin(plugins[id]);
 	plugins[id] = NULL;
 	return true;
 }
