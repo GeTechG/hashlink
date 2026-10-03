@@ -309,20 +309,31 @@ if(BUILD_TESTING)
     )
 
     #####################
-    # reload.hl (hot reload : the second file is the same program built with -D v2)
+    # reload.hl (hot reload : the other files are the same program built with other defines, see Reload.hx)
 
-    foreach(v v1 v2)
+    set(RELOAD_v1 -D v1)
+    set(RELOAD_v2 -D v2)
+    set(RELOAD_bad -D v2 -D bad)
+    set(RELOAD_v3 -D v3)
+    set(RELOAD_v4 -D v4)
+    set(RELOAD_many -D v4 -D many)
+    set(RELOAD_v5 -D v4 -D v5)
+    set(RELOAD_v6 -D v4 -D v5 -D v6)
+    set(RELOAD_PATCHES)
+    foreach(v v1 v2 bad v3 v4 many v5 v6)
         add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_${v}.hl
             COMMAND ${HAXE_COMPILER}
                 ${HAXE_HL_FLAGS}
-                -D ${v}
+                ${RELOAD_${v}}
                 -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_${v}.hl
                 -cp ${CMAKE_SOURCE_DIR}/other/tests -main Reload
         )
+        if(NOT v STREQUAL v1)
+            list(APPEND RELOAD_PATCHES ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_${v}.hl)
+        endif()
     endforeach()
     add_custom_target(reload.hl ALL
-        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl
-            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v2.hl
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl ${RELOAD_PATCHES}
     )
 
     #####################
@@ -466,11 +477,11 @@ if(BUILD_TESTING)
         )
         add_test(NAME reload.hl
             COMMAND hl --hot-reload ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl
-                ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v2.hl
+                ${RELOAD_PATCHES}
         )
         set_tests_properties(reload.hl
             PROPERTIES
-            PASS_REGULAR_EXPRESSION "before=181 reloaded=true value=182"
+            PASS_REGULAR_EXPRESSION "refused=true value=181 roots=0.*before=181 reloaded=true value=182.*added=old3old4 reloaded=true added=new3new4.*many=false 0 added=new3new4.*\\[HotReload\\] 1 changes[\r\n]+string=true added=new5!true.*class=true added=new65true value=182"
         )
         if(TARGET plugin.hl)
             add_test(NAME plugin.hl
