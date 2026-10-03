@@ -978,6 +978,17 @@ hl_code_hash *hl_code_hash_alloc( hl_code *c ) {
 		}
 	}
 
+	// the remaining globals (core types allocated by the boot code) have nothing to identify them :
+	// use their rank among the ones of the same type, which does not change when another global is added
+	for(i=c->nglobals-1;i>=0;i--) {
+		int j, rank = 0;
+		if( h->globals_signs[i] != (i | 0x80000000) ) continue;
+		for(j=0;j<i;j++)
+			if( h->globals_signs[j] == (j | 0x80000000) && hl_code_hash_type(h,c->globals[j]) == hl_code_hash_type(h,c->globals[i]) )
+				rank++;
+		h->globals_signs[i] = rank | 0x80000000;
+	}
+
 	for(i=0;i<c->nglobals;i++)
 		h->globals_signs[i] ^= hl_code_hash_type(h,c->globals[i]);
 	return h;
