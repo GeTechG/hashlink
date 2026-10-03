@@ -320,14 +320,16 @@ if(BUILD_TESTING)
     set(RELOAD_v5 -D v4 -D v5)
     set(RELOAD_v6 -D v4 -D v5 -D v6)
     set(RELOAD_some -D v4 -D v5 -D v6 -D some)
+    set(RELOAD_v7 -D v4 -D v5 -D v6 -D v7 --macro "addGlobalMetadata('Type','@:build(Strings.failing())')")
     set(RELOAD_PATCHES)
-    foreach(v v1 v2 bad v3 v4 many v5 v6 some)
+    foreach(v v1 v2 bad v3 v4 many v5 v6 some v7)
         add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_${v}.hl
             COMMAND ${HAXE_COMPILER}
                 ${HAXE_HL_FLAGS}
                 ${RELOAD_${v}}
                 -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_${v}.hl
                 -cp ${CMAKE_SOURCE_DIR}/other/tests -main Reload
+            VERBATIM
         )
         if(NOT v STREQUAL v1)
             list(APPEND RELOAD_PATCHES ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_${v}.hl)
@@ -482,7 +484,7 @@ if(BUILD_TESTING)
         )
         set_tests_properties(reload.hl
             PROPERTIES
-            PASS_REGULAR_EXPRESSION "refused=true value=181 roots=0.*before=181 reloaded=true value=182.*added=old3old4 reloaded=true added=new3new4.*many=false 0 added=new3new4.*\\[HotReload\\] 1 changes[\r\n]+string=true added=new5!true.*class=true added=new65true value=182.*some=true 3000 again=true 0"
+            PASS_REGULAR_EXPRESSION "refused=true value=181 roots=0.*before=181 reloaded=true value=182.*added=old3old4 reloaded=true added=new3new4.*many=false 0 added=new3new4.*\\[HotReload\\] 1 changes[\r\n]+string=true added=new5!true.*class=true added=new65true value=182.*some=true 3000 again=true 0[\r\n]+\\[HotReload\\] [0-9]+ changes[\r\n]+failing=init failed again=false added=new7new5!true"
         )
         if(TARGET plugin.hl)
             add_test(NAME plugin.hl

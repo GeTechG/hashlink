@@ -107,12 +107,21 @@ static bool check_reload( vbyte *alt_file ) {
 	hl_code *code = load_code(file, &error_msg, false);
 	if( code == NULL )
 		return false;
+	// if the entry point of the patch throws, the patch is applied : the file should not be loaded again
+	hl_trap_ctx trap;
+	vdynamic *exc;
+	hl_trap(trap, exc, on_exception);
 	changed = hl_module_patch(m->m, code);
+	hl_endtrap(trap);
 	m->file_time = time;
 	hl_code_free(code);
 	// a refused patch keeps nothing of its code
 	if( !changed ) hl_free(&code->alloc);
 	return changed;
+on_exception:
+	m->file_time = time;
+	hl_code_free(code);
+	hl_rethrow(exc);
 }
 
 static bool load_plugin( pchar *file ) {

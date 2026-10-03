@@ -949,6 +949,9 @@ hl_type *hl_module_resolve_type( hl_module *m, hl_type *t, bool err ) {
 	return NULL;
 }
 
+// returns false if the patch is refused : nothing of it is kept and c can be freed
+// returns true if it is applied, c is then used by the module
+// throws if it is applied and the entry point that is called again throws : the caller has to keep c, as if true was returned
 h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 	int i,i1,i2;
 	bool has_changes = false;
@@ -1183,6 +1186,8 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 	// it allocates the core types again : keep the values the globals already had, the running code might hold them
 	unsigned char *old_globals = (unsigned char*)hl_gc_alloc_raw(m1->globals_size);
 	memcpy(old_globals, m1->globals_data, m1->globals_size);
+	bool isExc = false;
+	vdynamic *exc = NULL;
 	for(i=modules_count-1;i>=0;i--) {
 		hl_module *m = cur_modules[i];
 		if( m->functions_ptrs[m->code->entrypoint] ) {
@@ -1190,7 +1195,7 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 			cl.t = m->code->functions[m->functions_indexes[m->code->entrypoint]].type;
 			cl.fun = m->functions_ptrs[m->code->entrypoint];
 			cl.hasValue = 0;
-			hl_dyn_call(&cl,NULL,0);
+			exc = hl_dyn_call_safe(&cl,NULL,0,&isExc);
 			break;
 		}
 	}
@@ -1201,6 +1206,8 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 	}
 
 	free(old_hashes);
+	// the patch is applied whatever the entry point did : its exception is thrown again, for the caller to report
+	if( isExc ) hl_rethrow(exc);
 	return true;
 
 failed:

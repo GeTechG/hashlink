@@ -12,10 +12,26 @@
 // it should only register the new class and not run main() again
 // an optional eighth file built with -D v4 -D v5 -D v6 -D some adds most of the globals a module can take :
 // the seventh file applied again adds none, so it should not be refused for the globals it does not have
+// an optional ninth file built with -D v4 -D v5 -D v6 -D v7 has an entry point that throws once the core types
+// are allocated again (Type.initEnum is replaced by Strings.failing, the static initialisers are not run by a patch) :
+// the patch is applied, the error reaches the caller, the core types (Float) are still the ones they were,
+// and the same file is not applied again
 class Strings {
 	public static macro function many( n : Int ) {
 		return haxe.macro.Context.parse("[" + [for( i in 0...n ) '"s$i"'].join(",") + "]", haxe.macro.Context.currentPos());
 	}
+	#if macro
+	// --macro addGlobalMetadata('Type','@:build(Strings.failing())') : the entry point calls Type.initEnum
+	public static function failing() {
+		var fields = haxe.macro.Context.getBuildFields();
+		for( f in fields )
+			switch( f.kind ) {
+			case FFun(fun) if( f.name == "initEnum" ): fun.expr = macro throw "init failed";
+			default:
+			}
+		return fields;
+	}
+	#end
 }
 
 #if !macro
@@ -84,6 +100,10 @@ class Reload {
 
 	static function added6() : String {
 		return #if v6 "new6" + new Added().n #else "old6" #end + (Type.resolveClass("Added") != null);
+	}
+
+	static function added7() : String {
+		return #if v7 "new7" #else "old7" #end;
 	}
 
 	// when it applies the next patch, it keeps running its current code and constant
@@ -162,6 +182,17 @@ class Reload {
 			Sys.println("class=" + reload(args[6]) + " added=" + added6() + " value=" + value());
 		if( args.length > 7 )
 			Sys.println("some=" + reload(args[7]) + " " + many() + " again=" + reload(args[6]) + " " + many());
+		if( args.length > 8 ) {
+			// the file is kept, so that it can be checked again with the same time
+			var tmp = Sys.programPath() + ".reload";
+			var path = Sys.systemName() == "Windows" ? @:privateAccess tmp.bytes : @:privateAccess tmp.toUtf8();
+			Sys.sleep(1.1);
+			sys.io.File.copy(args[8], tmp);
+			var err = try "" + checkReload(path) catch( e : Dynamic ) Std.string(e);
+			var again = try "" + checkReload(path) catch( e : Dynamic ) Std.string(e);
+			sys.FileSystem.deleteFile(tmp);
+			Sys.println("failing=" + err + " again=" + again + " added=" + added7() + added5(float));
+		}
 	}
 
 }
