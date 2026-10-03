@@ -1,5 +1,7 @@
 // hot reload (hl --hot-reload + sys_check_reload) : the module is patched with the same program built with -D v2
 // value() is recompiled and has to call base()/Counter that stay in the first module, through calls and closures
+// an optional second file built with -D v2 -D bad is tried first : it has the same value() but is refused,
+// which should leave nothing behind (v2 still applies, no GC root is kept)
 class Counter {
 	public var n : Int;
 	public function new( n : Int ) {
@@ -9,6 +11,12 @@ class Counter {
 		return n;
 	}
 }
+
+#if bad
+class Extra {
+	public static var counter = new Counter(1);
+}
+#end
 
 class Reload {
 
@@ -26,19 +34,66 @@ class Reload {
 		return base() + call(base) + call(counter.get) + #if v2 2 #else 1 #end;
 	}
 
+	static function refused() : Int {
+		#if bad
+		// the inner closure can't be resolved by the patch
+		var k = Extra.counter.n;
+		var f = function() { var g = function() return k; return call(g); };
+		return call(f);
+		#else
+		return 0;
+		#end
+	}
+
 	@:hlNative("std","sys_check_reload") static function checkReload( ?alt : hl.Bytes ) : Bool {
 		return false;
 	}
 
-	static function main() {
-		var before = value();
-		// the file time has a one second precision and has to differ from the running file one
+	static function reload( file : String ) : Bool {
+		// the file time has a one second precision and has to differ from the previous one
 		Sys.sleep(1.1);
 		var tmp = Sys.programPath() + ".reload";
-		sys.io.File.copy(Sys.args()[0], tmp);
+		sys.io.File.copy(file, tmp);
 		var r = checkReload(Sys.systemName() == "Windows" ? @:privateAccess tmp.bytes : @:privateAccess tmp.toUtf8());
 		sys.FileSystem.deleteFile(tmp);
-		Sys.println("before=" + before + " reloaded=" + r + " value=" + value());
+		return r;
+	}
+
+	// number of GC roots, read from a memory dump (see hl_gc_dump_memory)
+	static function roots() : Int {
+		var tmp = Sys.programPath() + ".dump";
+		hl.Gc.dumpMemory(tmp);
+		hl.Gc.major(); // the dump leaves the allocator in a state that crashes the next allocation
+		var f = sys.io.File.read(tmp);
+		f.seek(4, SeekBegin);
+		var ptr = f.readInt32() & 1 != 0 ? 8 : 4;
+		f.seek(8, SeekCur); // private data, mark stack
+		for( i in 0...f.readInt32() ) {
+			f.seek(ptr, SeekCur);
+			var noptr = f.readInt32() & 2 != 0;
+			var size = f.readInt32();
+			f.seek(4, SeekCur);
+			while( f.readInt32() | (ptr == 8 ? f.readInt32() : 0) != 0 ) {
+				var bsize = f.readInt32();
+				if( noptr && bsize >= ptr ) f.seek(ptr, SeekCur);
+			}
+			if( !noptr ) f.seek(size, SeekCur);
+		}
+		var n = f.readInt32();
+		f.close();
+		sys.FileSystem.deleteFile(tmp);
+		return n;
+	}
+
+	static function main() {
+		var before = value();
+		var args = Sys.args();
+		if( args.length > 1 ) {
+			var r0 = roots();
+			var r = reload(Sys.programPath()) || reload(Sys.programPath()) || reload(args[1]) || reload(args[1]);
+			Sys.println("refused=" + !r + " value=" + value() + " roots=" + (roots() - r0));
+		}
+		Sys.println("before=" + before + " reloaded=" + reload(args[0]) + " value=" + value() + " refused=" + refused());
 	}
 
 }

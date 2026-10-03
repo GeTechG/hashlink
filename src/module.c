@@ -948,6 +948,9 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 	bool has_changes = false;
 	int changes_count = 0;
 	jit_ctx *ctx = m1->jit_ctx;
+	// restored if the patch is refused
+	int *old_hashes = (int*)malloc(sizeof(int) * m1->code->nfunctions);
+	memcpy(old_hashes, m1->hash->functions_hashes, sizeof(int) * m1->code->nfunctions);
 
 	hl_module *m2 = hl_module_alloc(c);
 	m2->hash = hl_code_hash_alloc(c);
@@ -1023,7 +1026,7 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 
 				m1->hash->functions_hashes[i1] = hash2; // update hash
 				int fpos = hl_jit_function(ctx, m2, f2);
-				if( fpos < 0 ) return false;
+				if( fpos < 0 ) goto failed;
 				m2->functions_ptrs[f2->findex] = (void*)(int_val)fpos;
 				has_changes = true;
 				break;
@@ -1032,7 +1035,7 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 		if( i1 == m1->code->nfunctions ) {
 			// not found (signature changed or new method) : inject new method!
 			int fpos = hl_jit_function(ctx, m2, f2);
-			if( fpos < 0 ) return false;
+			if( fpos < 0 ) goto failed;
 			m2->hash->functions_hashes[i2] = -1;
 			m2->functions_ptrs[f2->findex] = (void*)(int_val)fpos;
 #			ifdef HL_DEBUG
@@ -1050,8 +1053,7 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 	if( !has_changes ) {
 		printf("[HotReload] No changes found\n");
 		fflush(stdout);
-		hl_jit_free(ctx, true);
-		return false;
+		goto failed;
 	}
 
 	// patch same types
@@ -1118,7 +1120,7 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 	if( m2->jit_code == NULL ) {
 		printf("[HotReload] Couldn't JIT result\n");
 		fflush(stdout);
-		return false;
+		goto failed;
 	}
 #	ifdef WIN64_UNWIND_TABLES
 	RtlAddFunctionTable(m2->unwind_table, m2->unwind_table_size, (DWORD64)m2->jit_code);
@@ -1160,13 +1162,30 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 		}
 	}
 
+	free(old_hashes);
 	return true;
+
+failed:
+	hl_jit_free(ctx,true);
+	memcpy(m1->hash->functions_hashes, old_hashes, sizeof(int) * m1->code->nfunctions);
+	free(old_hashes);
+	// the globals are shared with m1 : only release the ones that were added
+	for(i=m1->code->nglobals;i<m2->code->nglobals;i++)
+		if( hl_is_ptr(m2->code->globals[i]) )
+			hl_remove_root(m2->globals_data+m2->globals_indexes[i]);
+	memset(m2->globals_data+m1->globals_size,0,m2->globals_size - m1->globals_size);
+	m2->globals_data = NULL;
+	m2->globals_indexes = NULL;
+	hl_module_free(m2);
+	return false;
 }
 
 void hl_module_free( hl_module *m ) {
-	for(int i=0;i<m->code->nglobals;i++) {
-		if( hl_is_ptr(m->code->globals[i]) )
-			hl_remove_root(m->globals_data+m->globals_indexes[i]);
+	if( m->globals_data && m->globals_indexes ) {
+		for(int i=0;i<m->code->nglobals;i++) {
+			if( hl_is_ptr(m->code->globals[i]) )
+				hl_remove_root(m->globals_data+m->globals_indexes[i]);
+		}
 	}
 	hl_free(&m->ctx.alloc);
 	hl_free_executable_memory(m->jit_code, m->codesize); // fix: was m->code — munmap'd the wrong pointer, leaking the JIT region
