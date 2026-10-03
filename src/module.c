@@ -1180,6 +1180,9 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 	m1->globals_size = m2->globals_size;
 
 	// call entry point (will only update types)
+	// it allocates the core types again : keep the values the globals already had, the running code might hold them
+	unsigned char *old_globals = (unsigned char*)hl_gc_alloc_raw(m1->globals_size);
+	memcpy(old_globals, m1->globals_data, m1->globals_size);
 	for(i=modules_count-1;i>=0;i--) {
 		hl_module *m = cur_modules[i];
 		if( m->functions_ptrs[m->code->entrypoint] ) {
@@ -1190,6 +1193,11 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 			hl_dyn_call(&cl,NULL,0);
 			break;
 		}
+	}
+	for(i=0;i<m1->code->nglobals;i++) {
+		void *old = *(void**)(old_globals + m1->globals_indexes[i]);
+		if( hl_is_ptr(m1->code->globals[i]) && old )
+			*(void**)(m1->globals_data + m1->globals_indexes[i]) = old;
 	}
 
 	free(old_hashes);

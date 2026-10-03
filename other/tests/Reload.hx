@@ -7,7 +7,7 @@
 // an optional fifth file built with -D v4 -D many adds more globals than a module can take and should be refused
 // an optional sixth file built with -D v4 -D v5 adds a string constant : the globals that follow are moved,
 // which should not change the entry point nor float() (a single change is reported), and the core types (Float)
-// are found in the globals they had
+// are found in the globals they had, with the value they had before the first patch
 // an optional seventh file built with -D v4 -D v5 -D v6 adds a class : the entry point is recompiled,
 // it should only register the new class and not run main() again
 class Strings {
@@ -140,6 +140,7 @@ class Reload {
 
 	static function main() {
 		var before = value();
+		var float = float();
 		var args = Sys.args();
 		if( args.length > 1 ) {
 			var r0 = roots();
@@ -152,7 +153,7 @@ class Reload {
 		if( args.length > 4 )
 			Sys.println("many=" + reload(args[4]) + " " + many() + " added=" + added3() + added4());
 		if( args.length > 5 )
-			Sys.println("string=" + reload(args[5]) + " added=" + added5(float()));
+			Sys.println("string=" + reload(args[5]) + " added=" + added5(float));
 		if( args.length > 6 )
 			Sys.println("class=" + reload(args[6]) + " added=" + added6() + " value=" + value());
 	}
