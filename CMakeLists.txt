@@ -331,7 +331,7 @@ if(BUILD_TESTING)
     execute_process(COMMAND ${HAXE_COMPILER} --version
         OUTPUT_VARIABLE HAXE_VERSION ERROR_VARIABLE HAXE_VERSION)
     if(HAXE_VERSION MATCHES "^[5-9]")
-        foreach(name plugin host)
+        foreach(name plugin host deep)
             add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_${name}.hl
                 COMMAND ${HAXE_COMPILER}
                     ${HAXE_HL_FLAGS}
@@ -342,6 +342,7 @@ if(BUILD_TESTING)
         add_custom_target(plugin.hl ALL
             DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_plugin.hl
                 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_host.hl
+                ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_deep.hl
         )
     endif()
 
@@ -475,6 +476,7 @@ if(BUILD_TESTING)
             add_test(NAME plugin.hl
                 COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_host.hl
                     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_plugin.hl
+                    ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_deep.hl
             )
         endif()
         add_test(NAME uvsample.hl
