@@ -91,7 +91,6 @@ class Reload {
 	static function roots() : Int {
 		var tmp = Sys.programPath() + ".dump";
 		hl.Gc.dumpMemory(tmp);
-		hl.Gc.major(); // the dump leaves the allocator in a state that crashes the next allocation
 		var f = sys.io.File.read(tmp);
 		f.seek(4, SeekBegin);
 		var ptr = f.readInt32() & 1 != 0 ? 8 : 4;

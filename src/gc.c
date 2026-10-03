@@ -943,6 +943,9 @@ static void gc_mark() {
 		mark_data = gc_alloc_page_memory(mark_size);
 		if( mark_data == NULL ) out_of_memory("markbits");
 	}
+#	ifdef GC_SLICES
+	gc_slice_gen++; // the unused blocks of the slices are not marked
+#	endif
 	MZERO(mark_data,mark_bytes);
 	gc_allocator_before_mark(mark_data);
 	// push roots
@@ -1002,10 +1005,6 @@ static void count_free_memory( gc_pheader *page, int size ) {
 }
 
 static void gc_major() {
-
-#ifdef GC_SLICES
-	gc_slice_gen++;
-#endif
 
 	if( gc_flags & GC_PROFILE_MEM ) {
 		double gc_mem = gc_stats.mark_bytes;
