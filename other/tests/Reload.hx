@@ -10,9 +10,11 @@
 // are found in the globals they had, with the value they had before the first patch
 // an optional seventh file built with -D v4 -D v5 -D v6 adds a class : the entry point is recompiled,
 // it should only register the new class and not run main() again
+// an optional eighth file built with -D v4 -D v5 -D v6 -D some adds most of the globals a module can take :
+// the seventh file applied again adds none, so it should not be refused for the globals it does not have
 class Strings {
-	public static macro function many() {
-		return haxe.macro.Context.parse("[" + [for( i in 0...5000 ) '"s$i"'].join(",") + "]", haxe.macro.Context.currentPos());
+	public static macro function many( n : Int ) {
+		return haxe.macro.Context.parse("[" + [for( i in 0...n ) '"s$i"'].join(",") + "]", haxe.macro.Context.currentPos());
 	}
 }
 
@@ -59,7 +61,9 @@ class Reload {
 
 	static function many() : Int {
 		#if many
-		return Strings.many().length;
+		return Strings.many(5000).length;
+		#elseif some
+		return Strings.many(3000).length;
 		#else
 		return 0;
 		#end
@@ -156,6 +160,8 @@ class Reload {
 			Sys.println("string=" + reload(args[5]) + " added=" + added5(float));
 		if( args.length > 6 )
 			Sys.println("class=" + reload(args[6]) + " added=" + added6() + " value=" + value());
+		if( args.length > 7 )
+			Sys.println("some=" + reload(args[7]) + " " + many() + " again=" + reload(args[6]) + " " + many());
 	}
 
 }

@@ -1002,8 +1002,8 @@ void hl_code_hash_remap_globals( hl_code_hash *hnew, hl_code_hash *hold ) {
 
 	int count = c->nglobals;
 	int old_count = hold->code->nglobals;
-	int extra =	old_count - count;
-	if( extra < 0 ) extra = 0;
+	// the old globals that are not found keep their slot : only the new ones are added, right after them
+	int extra = 0;
 	int *remap = malloc(sizeof(int) * count);
 
 	for(i=0;i<count;i++) {

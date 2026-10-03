@@ -319,8 +319,9 @@ if(BUILD_TESTING)
     set(RELOAD_many -D v4 -D many)
     set(RELOAD_v5 -D v4 -D v5)
     set(RELOAD_v6 -D v4 -D v5 -D v6)
+    set(RELOAD_some -D v4 -D v5 -D v6 -D some)
     set(RELOAD_PATCHES)
-    foreach(v v1 v2 bad v3 v4 many v5 v6)
+    foreach(v v1 v2 bad v3 v4 many v5 v6 some)
         add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_${v}.hl
             COMMAND ${HAXE_COMPILER}
                 ${HAXE_HL_FLAGS}
@@ -481,7 +482,7 @@ if(BUILD_TESTING)
         )
         set_tests_properties(reload.hl
             PROPERTIES
-            PASS_REGULAR_EXPRESSION "refused=true value=181 roots=0.*before=181 reloaded=true value=182.*added=old3old4 reloaded=true added=new3new4.*many=false 0 added=new3new4.*\\[HotReload\\] 1 changes[\r\n]+string=true added=new5!true.*class=true added=new65true value=182"
+            PASS_REGULAR_EXPRESSION "refused=true value=181 roots=0.*before=181 reloaded=true value=182.*added=old3old4 reloaded=true added=new3new4.*many=false 0 added=new3new4.*\\[HotReload\\] 1 changes[\r\n]+string=true added=new5!true.*class=true added=new65true value=182.*some=true 3000 again=true 0"
         )
         if(TARGET plugin.hl)
             add_test(NAME plugin.hl
