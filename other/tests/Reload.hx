@@ -5,6 +5,11 @@
 // optional third and fourth files built with -D v3 and -D v4 are applied after v2 : each of them replaces a string
 // constant, so adds a global, and the one of v4 should not take the place of the one of v3
 // an optional fifth file built with -D v4 -D many adds more globals than a module can take and should be refused
+// an optional sixth file built with -D v4 -D v5 adds a string constant : the globals that follow are moved,
+// which should not change the entry point nor float() (a single change is reported), and the core types (Float)
+// are found in the globals they had
+// an optional seventh file built with -D v4 -D v5 -D v6 adds a class : the entry point is recompiled,
+// it should only register the new class and not run main() again
 class Strings {
 	public static macro function many() {
 		return haxe.macro.Context.parse("[" + [for( i in 0...5000 ) '"s$i"'].join(",") + "]", haxe.macro.Context.currentPos());
@@ -25,6 +30,14 @@ class Counter {
 #if bad
 class Extra {
 	public static var counter = new Counter(1);
+}
+#end
+
+#if v6
+class Added {
+	public var n = 5;
+	public function new() {
+	}
 }
 #end
 
@@ -54,6 +67,19 @@ class Reload {
 
 	static function added4() : String {
 		return #if v4 "new4" #else "old4" #end;
+	}
+
+	// the global of Float comes after the ones of the strings
+	static function added5( float : Dynamic ) : String {
+		return #if v5 "new5" + Std.string("!") #else "old5" #end + (float == Float);
+	}
+
+	static function float() : Dynamic {
+		return Float;
+	}
+
+	static function added6() : String {
+		return #if v6 "new6" + new Added().n #else "old6" #end + (Type.resolveClass("Added") != null);
 	}
 
 	// when it applies the next patch, it keeps running its current code and constant
@@ -125,6 +151,10 @@ class Reload {
 			Sys.println("added=" + added3() + added4() + " reloaded=" + reload(args[2]) + " added=" + added3(args[3]) + added4());
 		if( args.length > 4 )
 			Sys.println("many=" + reload(args[4]) + " " + many() + " added=" + added3() + added4());
+		if( args.length > 5 )
+			Sys.println("string=" + reload(args[5]) + " added=" + added5(float()));
+		if( args.length > 6 )
+			Sys.println("class=" + reload(args[6]) + " added=" + added6() + " value=" + value());
 	}
 
 }

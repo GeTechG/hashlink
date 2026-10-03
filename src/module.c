@@ -578,6 +578,12 @@ static void hl_module_init_indexes( hl_module *m ) {
 			break;
 		}
 	}
+	// name the entry point first, so that its closures are named after it
+	static hl_type_obj obj_entry = {0};
+	hl_function *fent = m->code->functions + m->functions_indexes[m->code->entrypoint];
+	obj_entry.name = USTR("");
+	fent->obj = &obj_entry;
+	fent->field.name = USTR("init");
 	for(i=0;i<m->code->nfunctions;i++) {
 		int k;
 		hl_function *f = m->code->functions + i;
@@ -607,12 +613,6 @@ static void hl_module_init_indexes( hl_module *m ) {
 			}
 		}
 	}
-
-	static hl_type_obj obj_entry = {0};
-	hl_function *fent = m->code->functions + m->functions_indexes[m->code->entrypoint];
-	obj_entry.name = USTR("");
-	fent->obj = &obj_entry;
-	fent->field.name = USTR("init");
 }
 
 #ifdef HL_VTUNE
