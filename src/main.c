@@ -110,6 +110,8 @@ static bool check_reload( vbyte *alt_file ) {
 	changed = hl_module_patch(m->m, code);
 	m->file_time = time;
 	hl_code_free(code);
+	// a refused patch keeps nothing of its code
+	if( !changed ) hl_free(&code->alloc);
 	return changed;
 }
 

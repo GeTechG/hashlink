@@ -792,6 +792,8 @@ int hl_module_init( hl_module *m, int flags ) {
 		free(m->globals_indexes);
 		free(m->globals_data);
 		m->globals_indexes = nindexes;
+		m->globals_max = m->code->nglobals + HOT_RELOAD_EXTRA_GLOBALS;
+		m->globals_max_size = nsize;
 		m->globals_data = malloc(nsize);
 		memset(m->globals_data,0,m->globals_size);
 		memset(m->globals_data + m->globals_size,0xFF,HOT_RELOAD_EXTRA_GLOBALS * sizeof(void*));
@@ -956,12 +958,28 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 	m2->hash = hl_code_hash_alloc(c);
 	hl_code_hash_remap_globals(m2->hash,m1->hash);
 
-	// share global data
+	// share global data : the new globals are stored after the ones of m1 and of the previous patches,
+	// in the space reserved by hl_module_init
 	free(m2->globals_data);
 	free(m2->globals_indexes);
+	m2->globals_data = NULL;
+	m2->globals_indexes = NULL;
+	int gsize = m1->globals_size;
+	for(i=m1->code->nglobals;i<m2->code->nglobals;i++) {
+		hl_type *t = c->globals[i];
+		gsize += hl_pad_size(gsize, t);
+		gsize += hl_type_size(t);
+	}
+	if( m2->code->nglobals > m1->globals_max || gsize > m1->globals_max_size ) {
+		printf("[HotReload] Too many new globals\n");
+		fflush(stdout);
+		free(old_hashes);
+		hl_module_free(m2);
+		return false;
+	}
 	m2->globals_data = m1->globals_data;
 	m2->globals_indexes = m1->globals_indexes;
-	int gsize = m1->globals_size;
+	gsize = m1->globals_size;
 	for(i=m1->code->nglobals;i<m2->code->nglobals;i++) {
 		hl_type *t = c->globals[i];
 		gsize += hl_pad_size(gsize, t);
@@ -1148,6 +1166,14 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 		fflush(stdout);
 	}
 	hl_module_add(m2);
+
+	// the globals that were added now belong to m1 : the next patch finds them by signature and adds its own after them
+	free(m1->hash->globals_signs);
+	m1->hash->globals_signs = (int*)malloc(sizeof(int) * c->nglobals);
+	memcpy(m1->hash->globals_signs, m2->hash->globals_signs, sizeof(int) * c->nglobals);
+	m1->code->globals = c->globals;
+	m1->code->nglobals = c->nglobals;
+	m1->globals_size = m2->globals_size;
 
 	// call entry point (will only update types)
 	for(i=modules_count-1;i>=0;i--) {

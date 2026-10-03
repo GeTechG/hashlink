@@ -137,6 +137,8 @@ typedef struct {
 	hl_code *code;
 	int codesize;
 	int globals_size;
+	int globals_max; // hot reload : how many globals and bytes globals_indexes and globals_data can hold
+	int globals_max_size;
 	int *globals_indexes;
 	unsigned char *globals_data;
 	void **functions_ptrs;
