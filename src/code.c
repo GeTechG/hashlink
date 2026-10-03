@@ -345,7 +345,7 @@ static void hl_read_function( hl_reader *r, hl_function *f ) {
 }
 
 #undef CHK_ERROR
-#define CHK_ERROR() if( r->error ) { if( c ) hl_free(&c->alloc); *error_msg = (char*)r->error; return NULL; }
+#define CHK_ERROR() if( r->error ) { if( c ) { hl_free(&c->falloc); hl_free(&c->alloc); } *error_msg = (char*)r->error; return NULL; }
 #define EXIT(msg) { ERROR(msg); CHK_ERROR(); }
 #define ALLOC(v,ptr,count) v = (ptr *)hl_zalloc(&c->alloc,(count)*sizeof(ptr))
 
@@ -507,8 +507,12 @@ hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
 			c->functions[i].debug = hl_read_debug_infos(r,c->functions[i].nops);
 			if( c->version >= 3 ) {
 				int nassigns = UINDEX();
-				int *assigns = (int*)malloc(sizeof(int)*nassigns*3);
+				int *assigns;
 				int j;
+				// each assign takes at least two bytes
+				if( nassigns > (r->size - r->pos) / 2 || nassigns > 0x7FFFFFFF / (int)(sizeof(int)*3) )
+					EXIT("Invalid assigns count");
+				assigns = (int*)hl_malloc(&c->falloc,sizeof(int)*nassigns*3);
 				for(j=0;j<nassigns;j++) {
 					assigns[j*3] = UINDEX();
 					assigns[j*3+1] = INDEX() - 1;
