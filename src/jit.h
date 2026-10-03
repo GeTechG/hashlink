@@ -24,6 +24,7 @@
 
 #include <hlmodule.h>
 #include <math.h>
+#include <setjmp.h>
 
 #ifdef HL_MINGW
 #	define SETJMP_FUN	_setjmp
@@ -286,7 +287,8 @@ extern vdynamic * const hl_emit_dyn_bools[2];
 #	define JIT_DEBUG
 #endif
 
-#define jit_error(msg)	{ hl_jit_error(msg,__func__,__LINE__); hl_debug_break(); exit(-1); }
+// hl_jit_abort gives the control back to hl_jit_function, exit is only reached outside of it
+#define jit_error(msg)	{ hl_jit_error(msg,__func__,__LINE__); hl_debug_break(); hl_jit_abort(); exit(-1); }
 #define jit_assert()	jit_error("")
 
 #if defined(JIT_DEBUG)
@@ -302,6 +304,7 @@ extern vdynamic * const hl_emit_dyn_bools[2];
 static void __ignore( void *value ) {}
 
 void hl_jit_error( const char *msg, const char *func, int line );
+void hl_jit_abort();
 
 void *hl_jit_code( jit_ctx *ctx, hl_module *m, int *codesize, hl_debug_infos **debug, hl_module *previous );
 void hl_jit_patch_method( void *old_fun, void **new_fun_table );

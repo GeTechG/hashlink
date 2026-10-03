@@ -1096,6 +1096,8 @@ void hl_emit_function( jit_ctx *jit ) {
 	ctx->emit_pos = 0;
 	ctx->trap_count = 0;
 	ctx->phi_count = 0;
+	ctx->phi_depth = 0;
+	ctx->wait_seal = NULL;
 	ctx->current_assign = 0;
 	ctx->in_args = false;
 	ctx->flushed = false;

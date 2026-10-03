@@ -5,6 +5,7 @@ import shared.Registry;
 	Loads PluginMain as a plugin sharing the `shared` package with this module:
 	load -> call a method of the shared type -> unload -> load again,
 	with a load whose entry point throws in between.
+	An optional second plugin (PluginDeep) is one the JIT refuses to compile.
 **/
 class PluginHost {
 
@@ -37,11 +38,19 @@ class PluginHost {
 		hl.Gc.major();
 	}
 
+	// the JIT refuses the plugin : the load fails, the host keeps running and can load other plugins
+	static function checkRefused( file : String ) {
+		if( loadPluginId(@:privateAccess file.bytes) >= 0 ) throw "refused plugin did load";
+		if( loadPluginId(@:privateAccess file.bytes) >= 0 ) throw "refused plugin did load";
+	}
+
 	static function main() {
 		var file = Sys.args()[0];
+		var refused = Sys.args()[1];
 		var id = check(file);
 		checkFailure(file);
 		checkFailure(file);
+		if( refused != null ) checkRefused(refused);
 		if( check(file) != id ) throw "failed plugin kept its id";
 		if( new Base(1).twice(1) != 3 ) throw "host method broken";
 		Sys.println("OK");

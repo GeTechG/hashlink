@@ -23,6 +23,7 @@
 #include "data_struct.h"
 
 static jit_ctx *current_ctx = NULL;
+static jmp_buf *abort_jmp = NULL;
 
 int hl_jit_trampoline = -1;
 
@@ -45,6 +46,13 @@ void hl_jit_error( const char *msg, const char *func, int line ) {
 		hl_emit_dump(ctx);
 	}
 	fflush(stdout);
+}
+
+void hl_jit_abort() {
+	jmp_buf *jmp = abort_jmp;
+	if( jmp == NULL ) return;
+	abort_jmp = NULL;
+	longjmp(*jmp,1);
 }
 
 void hl_jit_null_field_access( int fhash ) {
@@ -197,7 +205,7 @@ void *hl_jit_previous_function( hl_module *m, hl_module *previous, int findex ) 
 	return previous->functions_ptrs[(previous->code->functions + old_idx)->findex];
 }
 
-int hl_jit_function( jit_ctx *ctx, hl_module *m, hl_function *f ) {
+static int jit_function( jit_ctx *ctx, hl_module *m, hl_function *f ) {
 	hl_free(&ctx->falloc);
 	ctx->mod = m;
 	ctx->fun = f;
@@ -237,6 +245,18 @@ int hl_jit_function( jit_ctx *ctx, hl_module *m, hl_function *f ) {
 	}
 	if( !jit_code_append(ctx) )
 		return -1;
+	return pos;
+}
+
+// a jit_error while compiling the function is reported as a failure (-1) :
+// the context can then be freed or reset, the same way as after a successful compilation
+int hl_jit_function( jit_ctx *ctx, hl_module *m, hl_function *f ) {
+	jmp_buf jmp;
+	int pos = -1;
+	abort_jmp = &jmp;
+	if( setjmp(jmp) == 0 )
+		pos = jit_function(ctx, m, f);
+	abort_jmp = NULL;
 	current_ctx = NULL;
 	return pos;
 }
