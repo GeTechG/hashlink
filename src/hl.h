@@ -635,8 +635,9 @@ typedef struct {
 	// plugin is unloaded, its id is freed and an error "Plugin entry point failed : <message>" is thrown
 	// instead : the original value is not propagated, as its type most likely belongs to the plugin.
 	// The plugin is always unloaded then, under the same unchecked precondition as unload_plugin :
-	// an entry point that can throw must do so before handing any object of its types or any
-	// closure to the host, else the host is left with references into freed memory.
+	// an entry point that can throw must do so before handing any object of its types, any
+	// closure or any of its string/bytes constants to the host, else the host is left with
+	// references into freed memory.
 	int (*load_plugin_id)( pchar *file );
 	// Frees the plugin's types, runtime objects and JIT code. Nothing is checked: the caller must
 	// ensure that nothing of the plugin is still in use, or the next GC pass, dynamic call or
@@ -644,6 +645,10 @@ typedef struct {
 	// - no live object whose type was allocated by the plugin (drop the references, then run a major GC)
 	// - no closure pointing into the plugin code
 	// - no plugin frame on the stack of any thread (so a plugin cannot unload itself)
+	// - no string or bytes kept that is a constant of the plugin : a literal is not copied, its data
+	//   points into the plugin code and is freed with it, whatever the type of the object holding it
+	//   (a name stored in a host registry, a Map key...). Values computed at runtime (concatenation,
+	//   etc.) are allocated by the GC and are safe to keep.
 	// The id is reused by a later load_plugin_id: an id is invalid once unloaded, and a stale one
 	// will designate another plugin.
 	bool (*unload_plugin)( int id );
