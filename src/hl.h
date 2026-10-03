@@ -631,8 +631,12 @@ typedef struct {
 	void (*vtune_init)();
 	bool (*load_plugin)( pchar *file );
 	// plugin load/unload primitives (see src/main.c, src/std/sys.c)
-	// Returns the plugin id, or -1 if it could not be loaded. An exception thrown by the plugin
-	// entry point is propagated : the plugin then stays loaded and can't be unloaded, as no id was returned.
+	// Returns the plugin id, or -1 if it could not be loaded. If the plugin entry point throws, the
+	// plugin is unloaded, its id is freed and an error "Plugin entry point failed : <message>" is thrown
+	// instead : the original value is not propagated, as its type most likely belongs to the plugin.
+	// The plugin is always unloaded then, under the same unchecked precondition as unload_plugin :
+	// an entry point that can throw must do so before handing any object of its types or any
+	// closure to the host, else the host is left with references into freed memory.
 	int (*load_plugin_id)( pchar *file );
 	// Frees the plugin's types, runtime objects and JIT code. Nothing is checked: the caller must
 	// ensure that nothing of the plugin is still in use, or the next GC pass, dynamic call or

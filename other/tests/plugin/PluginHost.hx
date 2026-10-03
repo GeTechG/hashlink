@@ -3,7 +3,8 @@ import shared.Registry;
 
 /**
 	Loads PluginMain as a plugin sharing the `shared` package with this module:
-	load -> call a method of the shared type -> unload -> load again.
+	load -> call a method of the shared type -> unload -> load again,
+	with a load whose entry point throws in between.
 **/
 class PluginHost {
 
@@ -21,12 +22,27 @@ class PluginHost {
 		Registry.items = [];
 		hl.Gc.major();
 		if( !unloadPlugin(id) ) throw "plugin did not unload";
+		return id;
+	}
+
+	// the entry point throws : the plugin must not stay loaded, nor keep its id
+	static function checkFailure( file : String ) {
+		Registry.fail = true;
+		var err : Dynamic = null;
+		try loadPluginId(@:privateAccess file.bytes) catch( e : Dynamic ) err = e;
+		Registry.fail = false;
+		if( err == null ) throw "plugin failure was not propagated";
+		if( Std.string(err).indexOf("plugin failure") < 0 ) throw "unexpected error " + err;
+		if( Registry.items.length != 0 ) throw "failed plugin did register";
+		hl.Gc.major();
 	}
 
 	static function main() {
 		var file = Sys.args()[0];
-		check(file);
-		check(file);
+		var id = check(file);
+		checkFailure(file);
+		checkFailure(file);
+		if( check(file) != id ) throw "failed plugin kept its id";
 		if( new Base(1).twice(1) != 3 ) throw "host method broken";
 		Sys.println("OK");
 	}

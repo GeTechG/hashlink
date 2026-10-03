@@ -13,6 +13,7 @@ class Sub extends Base {
 **/
 class PluginMain {
 	static function main() {
+		if( Registry.fail ) throw "plugin failure";
 		Registry.add(new Sub(2));
 	}
 }

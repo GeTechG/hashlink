@@ -186,7 +186,16 @@ static int load_plugin_id( pchar *file ) {
 	cl.t = m->code->functions[m->functions_indexes[m->code->entrypoint]].type;
 	cl.fun = m->functions_ptrs[m->code->entrypoint];
 	cl.hasValue = 0;
-	hl_dyn_call(&cl,NULL,0);
+	bool isExc = false;
+	vdynamic *exc = hl_dyn_call_safe(&cl,NULL,0,&isExc);
+	if( isExc ) {
+		// the thrown value is most likely of a plugin type : it would not survive the module,
+		// so only its message is kept and thrown again as a host error (see hl_setup.load_plugin_id in hl.h)
+		vdynamic *err = hl_alloc_strbytes(USTR("Plugin entry point failed : %s"), hl_to_string(exc));
+		plugins[id] = NULL;
+		hl_module_remove(m);
+		hl_throw(err);
+	}
 	return id;
 }
 
