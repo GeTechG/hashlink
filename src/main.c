@@ -157,6 +157,19 @@ static void free_plugin( hl_module *m ) {
 static hl_module **plugins = NULL;
 static int plugins_count = 0;
 
+// the message of an exception thrown by a plugin : reading it can run plugin code (toString), which can throw again
+static const uchar *plugin_error_message( vdynamic *exc ) {
+	hl_trap_ctx trap;
+	const uchar *msg;
+	hl_trap(trap, exc, on_exception);
+	msg = hl_to_string(exc);
+	hl_endtrap(trap);
+	return msg;
+on_exception:
+	hl_endtrap(trap);
+	return USTR("(no message)");
+}
+
 static int load_plugin_id( pchar *file ) {
 	char *error_msg = NULL;
 	hl_code *code = load_code(file, &error_msg, false);
@@ -204,7 +217,7 @@ static int load_plugin_id( pchar *file ) {
 	if( isExc ) {
 		// the thrown value is most likely of a plugin type : it would not survive the module,
 		// so only its message is kept and thrown again as a host error (see hl_setup.load_plugin_id in hl.h)
-		vdynamic *err = hl_alloc_strbytes(USTR("Plugin entry point failed : %s"), hl_to_string(exc));
+		vdynamic *err = hl_alloc_strbytes(USTR("Plugin entry point failed : %s"), plugin_error_message(exc));
 		plugins[id] = NULL;
 		free_plugin(m);
 		hl_throw(err);

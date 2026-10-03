@@ -26,14 +26,15 @@ class PluginHost {
 		return id;
 	}
 
-	// the entry point throws : the plugin must not stay loaded, nor keep its id
-	static function checkFailure( file : String ) {
-		Registry.fail = true;
+	// the entry point throws : the plugin must not stay loaded, nor keep its id,
+	// even when the thrown value throws again while its message is read
+	static function checkFailure( file : String, unprintable = false ) {
+		if( unprintable ) Registry.failObject = true else Registry.fail = true;
 		var err : Dynamic = null;
 		try loadPluginId(@:privateAccess file.bytes) catch( e : Dynamic ) err = e;
-		Registry.fail = false;
+		Registry.fail = Registry.failObject = false;
 		if( err == null ) throw "plugin failure was not propagated";
-		if( Std.string(err).indexOf("plugin failure") < 0 ) throw "unexpected error " + err;
+		if( Std.string(err).indexOf(unprintable ? "Plugin entry point failed" : "plugin failure") < 0 ) throw "unexpected error " + err;
 		if( Registry.items.length != 0 ) throw "failed plugin did register";
 		hl.Gc.major();
 	}
@@ -50,6 +51,7 @@ class PluginHost {
 		var id = check(file);
 		checkFailure(file);
 		checkFailure(file);
+		checkFailure(file, true);
 		if( refused != null ) checkRefused(refused);
 		if( check(file) != id ) throw "failed plugin kept its id";
 		if( new Base(1).twice(1) != 3 ) throw "host method broken";
