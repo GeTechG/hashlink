@@ -348,6 +348,19 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # todyn.hl
+
+    add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/todyn.hl
+        COMMAND ${HAXE_COMPILER}
+            ${HAXE_HL_FLAGS}
+            -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/todyn.hl
+            -cp ${CMAKE_SOURCE_DIR}/other/tests -main ToDyn
+    )
+    add_custom_target(todyn.hl ALL
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/todyn.hl
+    )
+
+    #####################
     # reload.hl (hot reload : the other files are the same program built with other defines, see Reload.hx)
 
     set(RELOAD_v1 -D v1)
@@ -548,6 +561,9 @@ if(BUILD_TESTING)
         )
         add_test(NAME stacksymbol.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol.hl
+        )
+        add_test(NAME todyn.hl
+            COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/todyn.hl
         )
         add_test(NAME reload.hl
             COMMAND hl --hot-reload ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl

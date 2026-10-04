@@ -183,6 +183,15 @@ static hl_type hlt_ui16 = { HUI16, 0 };
 static vdynamic jit_dyn_bool_values[2];
 vdynamic * const hl_emit_dyn_bools[2] = { &jit_dyn_bool_values[0], &jit_dyn_bool_values[1] };
 
+// same as hl_make_dyn : a null pointer is a null dynamic
+static vdynamic *jit_ptr_to_dyn( hl_type *t, void *p ) {
+	vdynamic *d;
+	if( p == NULL ) return NULL;
+	d = hl_alloc_dynamic(t);
+	d->v.ptr = p;
+	return d;
+}
+
 static linked_inf *link_add( emit_ctx *ctx, int id, void *ptr, linked_inf *head ) {
 	linked_inf *l = hl_malloc(&ctx->jit->falloc,sizeof(linked_inf));
 	l->id = id;
@@ -301,23 +310,6 @@ static emit_mode emit_get_mode( emit_ctx *ctx, ereg v ) {
 	if( v < 0 )
 		return GET_PHI(v)->mode;
 	return ctx->instrs[int_arr_get(ctx->values,v)].mode;
-}
-
-static bool emit_get_const( emit_ctx *ctx, ereg v, uint64 *out ) {
-	einstr *e;
-	if( IS_NULL(v) || v < 0 )
-		return false; // phis are not resolved here
-	if( REG_KIND(v) == R_CONST ) {
-		*out = (uint64)(int64)REG_VALUE(v);
-		return true;
-	}
-	if( REG_KIND(v) != R_VALUE )
-		return false;
-	e = ctx->instrs + int_arr_get(ctx->values,v);
-	if( e->op != LOAD_CONST )
-		return false;
-	*out = e->value;
-	return true;
 }
 
 static const char *phi_prefix( emit_ctx *ctx ) {
@@ -1664,15 +1656,15 @@ static void emit_opcode( emit_ctx *ctx, hl_opcode *o ) {
 		break;
 	case OToDyn:
 		if( ra->t->kind == HBOOL ) {
-			ereg arg = LOAD(ra);
-			uint64 cval;
-			if( emit_get_const(ctx, arg, &cval) )
-				STORE(dst, LOAD_CONST_PTR(hl_emit_dyn_bools[cval ? 1 : 0]));
-			else {
-				ereg idx = emit_gen_ext(ctx, CONV, arg, UNUSED, M_PTR, M_UI8);
-				ereg addr = OFFSET(LOAD_CONST_PTR(hl_emit_dyn_bools), idx, HL_WSIZE, 0);
-				STORE(dst, LOAD_MEM_PTR(addr, 0));
-			}
+			// always read the value : a constant whose address was taken (ORef, write in a trap) might have changed
+			ereg idx = emit_gen_ext(ctx, CONV, LOAD(ra), UNUSED, M_PTR, M_UI8);
+			ereg addr = OFFSET(LOAD_CONST_PTR(hl_emit_dyn_bools), idx, HL_WSIZE, 0);
+			STORE(dst, LOAD_MEM_PTR(addr, 0));
+		} else if( hl_is_ptr(ra->t) ) {
+			ereg args[2];
+			args[0] = LOAD_CONST_PTR(ra->t);
+			args[1] = LOAD(ra);
+			STORE(dst, emit_native_call(ctx,jit_ptr_to_dyn,args,2,&hlt_dyn));
 		} else {
 			ereg arg = LOAD_CONST_PTR(ra->t);
 			ereg ret = emit_native_call(ctx,hl_alloc_dynamic,&arg,1,&hlt_dyn);
