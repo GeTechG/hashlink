@@ -74,6 +74,7 @@ struct _hl_tls {
 #else
 
 #	include <pthread.h>
+#	include <sched.h>
 #	include <unistd.h>
 #	include <sys/syscall.h>
 #	include <sys/time.h>
@@ -464,6 +465,10 @@ DEFINE_PRIM(_VOID, condition_broadcast, _CONDITION)
 // ----------------- THREAD LOCAL
 
 #if defined(HL_THREADS)
+static void _tls_store_free( void *store ) {
+	hl_remove_root(store);
+	free(store);
+}
 static void **_tls_get( hl_tls *t ) {
 #	ifdef HL_WIN
 	return (void**)TlsGetValue(t->tid);
@@ -497,14 +502,14 @@ HL_PRIM hl_tls *hl_tls_alloc( bool gc_value ) {
 	hl_tls *l = (hl_tls*)hl_gc_alloc_finalizer(sizeof(hl_tls));
 	l->free = hl_tls_free;
 	l->gc = gc_value;
-	pthread_key_create(&l->key,NULL);
+	pthread_key_create(&l->key,gc_value ? _tls_store_free : NULL);
 	return l;
 #	endif
 }
 
 HL_PRIM void hl_tls_free( hl_tls *l ) {
 #	if !defined(HL_THREADS)
-	free(l);
+	// allocated by the GC
 #	elif defined(HL_WIN)
 	if( l->free ) {
 		TlsFree(l->tid);
@@ -533,8 +538,7 @@ HL_PRIM void hl_tls_set( hl_tls *l, void *v ) {
 			_tls_set(l, store);
 		} else {
 			if( !v ) {
-				hl_remove_root(store);
-				free(store);
+				_tls_store_free(store);
 				_tls_set(l, NULL);
 				return;
 			}
@@ -822,12 +826,12 @@ HL_PRIM hl_thread *hl_thread_current() {
 }
 
 HL_PRIM void hl_thread_yield() {
-#if !defined(Hl_THREADS)
+#if !defined(HL_THREADS)
 	// nothing
 #elif defined(HL_WIN)
 	Sleep(0);
 #else
-	pthread_yield();
+	sched_yield();
 #endif
 }
 
@@ -987,7 +991,7 @@ HL_PRIM void hl_thread_set_name( hl_thread *t, const char *name ) {
 		tinf = threads->threads[i];
 		if( tinf->thread_id == tid ) {
 			memcpy(tinf->thread_name, name, len);
-			tinf->thread_name[len + 1] = 0;
+			tinf->thread_name[len] = 0;
 		}
 	}
 #endif

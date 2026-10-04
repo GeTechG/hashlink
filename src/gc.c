@@ -345,6 +345,13 @@ HL_PRIM void hl_add_root( void *r ) {
 
 HL_PRIM void hl_remove_root( void *v ) {
 	int i;
+#	ifdef HL_THREADS
+	// a TLS destructor runs after hl_unregister_thread: no thread state to save, only take the lock
+	bool unregistered = !current_thread && gc_threads.global_lock;
+	if( unregistered )
+		hl_mutex_acquire(gc_threads.global_lock);
+	else
+#	endif
 	gc_global_lock(true);
 	for(i=gc_roots_count-1;i>=0;i--)
 		if( gc_roots[i] == (void**)v ) {
@@ -352,6 +359,11 @@ HL_PRIM void hl_remove_root( void *v ) {
 			gc_roots[i] = gc_roots[gc_roots_count];
 			break;
 		}
+#	ifdef HL_THREADS
+	if( unregistered )
+		hl_mutex_release(gc_threads.global_lock);
+	else
+#	endif
 	gc_global_lock(false);
 }
 
@@ -365,6 +377,8 @@ HL_PRIM gc_pheader *hl_gc_get_page( void *v ) {
 // -------------------------  THREADS ----------------------------------------------------------
 
 HL_API int hl_thread_id();
+
+static int gc_threads_max = 0;
 
 HL_API void hl_register_thread( void *stack_top ) {
 	if( hl_get_thread() )
@@ -384,10 +398,14 @@ HL_API void hl_register_thread( void *stack_top ) {
 	hl_add_root(&t->exc_handler);
 
 	gc_global_lock(true);
-	hl_thread_info **all = (hl_thread_info**)malloc(sizeof(void*) * (gc_threads.count + 1));
-	memcpy(all,gc_threads.threads,sizeof(void*)*gc_threads.count);
-	gc_threads.threads = all;
-	all[gc_threads.count++] = t;
+	if( gc_threads.count == gc_threads_max ) {
+		// the previous array is not freed: the profiler and hl_thread_set_name walk it without the lock
+		gc_threads_max = gc_threads_max ? (gc_threads_max << 1) : 16;
+		hl_thread_info **all = (hl_thread_info**)malloc(sizeof(void*) * gc_threads_max);
+		memcpy(all,gc_threads.threads,sizeof(void*)*gc_threads.count);
+		gc_threads.threads = all;
+	}
+	gc_threads.threads[gc_threads.count++] = t;
 	gc_global_lock(false);
 }
 
@@ -465,9 +483,9 @@ static void *gc_alloc_page_memory( int size );
 static gc_pheader *gc_alloc_page( int size, int kind, int block_count ) {
 	unsigned char *base = (unsigned char*)gc_alloc_page_memory(size);
 	if( !base ) {
-		int pages = gc_stats.pages_allocated;
+		int pages = gc_stats.pages_allocated, count = gc_stats.pages_count;
 		gc_major();
-		if( pages != gc_stats.pages_allocated )
+		if( pages != gc_stats.pages_allocated || count != gc_stats.pages_count )
 			return gc_alloc_page(size, kind, block_count);
 		// big block : report stack trace - we should manage to handle it
 		if( size >= (8 << 20) ) {
@@ -1148,6 +1166,7 @@ static void hl_gc_init() {
 #	endif
 	gc_stats.mark_bytes = 4; // prevent reading out of bmp
 	memset(&gc_threads,0,sizeof(gc_threads));
+	gc_threads_max = 0;
 #	ifdef HL_THREADS
 	hl_add_root(&gc_threads.global_lock);
 	hl_add_root(&gc_threads.exclusive_lock);
@@ -1533,7 +1552,7 @@ HL_API void hl_gc_profile( bool b ) {
 	if( b )
 		gc_flags |= GC_PROFILE;
 	else
-		gc_flags &= GC_PROFILE;
+		gc_flags &= ~GC_PROFILE;
 }
 
 static FILE *fdump;
