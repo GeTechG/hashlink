@@ -72,22 +72,37 @@ struct _hl_ssl_conf_state {
 	mbedtls_ssl_config c;
 };
 
+typedef struct _hl_ssl_own_cert hl_ssl_own_cert;
+struct _hl_ssl_own_cert {
+	hl_ssl_own_cert *next;
+	hl_ssl_cert *cert;
+	hl_ssl_pkey *key;
+};
+
 typedef struct {
 	hl_ssl_conf_state *st;
 	vclosure *sni;
+	hl_ssl_cert *ca;
+	hl_ssl_own_cert *certs;
 } hl_ssl_conf;
+
+typedef struct _hl_ssl_ctx hl_ssl_ctx;
 
 typedef struct _hl_ssl_state hl_ssl_state;
 struct _hl_ssl_state {
 	void(*finalize)(hl_ssl_state *);
+	hl_ssl_ctx *owner; // not scanned : the handle is alive whenever mbedTLS runs on the context
 	mbedtls_ssl_context s;
 };
 
-typedef struct {
+struct _hl_ssl_ctx {
 	hl_ssl_state *st;
 	hl_ssl_conf *conf;
 	void *bio; // socket handle or bio array
-} hl_ssl_ctx;
+	// the pair given by the SNI callback, which mbedTLS uses until the end of the handshake
+	hl_ssl_cert *sni_cert;
+	hl_ssl_pkey *sni_key;
+};
 
 #define _SOCK	_ABSTRACT(hl_socket)
 #define TSSL _ABSTRACT(mbedtls_ssl_context)
@@ -142,8 +157,11 @@ HL_PRIM hl_ssl_ctx *HL_NAME(ssl_new)(hl_ssl_conf *config) {
 	ssl->st = NULL;
 	ssl->conf = config;
 	ssl->bio = NULL;
+	ssl->sni_cert = NULL;
+	ssl->sni_key = NULL;
 	ssl->st = (hl_ssl_state*)hl_gc_alloc_finalizer(sizeof(hl_ssl_state));
 	ssl->st->finalize = NULL;
+	ssl->st->owner = ssl;
 	mbedtls_ssl_init(&ssl->st->s);
 	if ((ret = mbedtls_ssl_setup(&ssl->st->s, &config->st->c)) != 0) {
 		mbedtls_ssl_free(&ssl->st->s);
@@ -159,6 +177,8 @@ HL_PRIM void HL_NAME(ssl_close)(hl_ssl_ctx *ssl) {
 	mbedtls_ssl_free(&ssl->st->s);
 	ssl->conf = NULL;
 	ssl->bio = NULL;
+	ssl->sni_cert = NULL;
+	ssl->sni_key = NULL;
 }
 
 HL_PRIM int HL_NAME(ssl_handshake)(hl_ssl_ctx *ssl) {
@@ -315,6 +335,8 @@ HL_PRIM hl_ssl_conf *HL_NAME(conf_new)(bool server) {
 	hl_ssl_conf *conf = (hl_ssl_conf*)hl_gc_alloc_raw(sizeof(hl_ssl_conf));
 	conf->st = NULL;
 	conf->sni = NULL;
+	conf->ca = NULL;
+	conf->certs = NULL;
 	conf->st = (hl_ssl_conf_state*)hl_gc_alloc_finalizer(sizeof(hl_ssl_conf_state));
 	conf->st->finalize = NULL;
 	mbedtls_ssl_config_init(&conf->st->c);
@@ -335,9 +357,12 @@ HL_PRIM void HL_NAME(conf_close)(hl_ssl_conf *conf) {
 	conf->st->finalize = NULL;
 	mbedtls_ssl_config_free(&conf->st->c);
 	conf->sni = NULL;
+	conf->ca = NULL;
+	conf->certs = NULL;
 }
 
 HL_PRIM void HL_NAME(conf_set_ca)(hl_ssl_conf *conf, hl_ssl_cert *cert) {
+	conf->ca = cert;
 	mbedtls_ssl_conf_ca_chain(&conf->st->c, cert->c, NULL);
 }
 
@@ -352,6 +377,12 @@ HL_PRIM void HL_NAME(conf_set_verify)(hl_ssl_conf *conf, int mode) {
 
 HL_PRIM void HL_NAME(conf_set_cert)(hl_ssl_conf *conf, hl_ssl_cert *cert, hl_ssl_pkey *key) {
 	int r;
+	// mbedTLS appends the pair to the ones already set
+	hl_ssl_own_cert *own = (hl_ssl_own_cert*)hl_gc_alloc_raw(sizeof(hl_ssl_own_cert));
+	own->cert = cert;
+	own->key = key;
+	own->next = conf->certs;
+	conf->certs = own;
 	if ((r = mbedtls_ssl_conf_own_cert(&conf->st->c, cert->c, key->k)) != 0)
 		ssl_error(r);
 }
@@ -375,6 +406,9 @@ static int sni_callback(void *arg, mbedtls_ssl_context *ctx, const unsigned char
 		else
 			ret = ((sni_callb_ret*(*)(vbyte*))c->fun)(hname);
 		if (ret && ret->cert && ret->key) {
+			hl_ssl_ctx *ssl = ((hl_ssl_state*)((char*)ctx - offsetof(hl_ssl_state, s)))->owner;
+			ssl->sni_cert = ret->cert;
+			ssl->sni_key = ret->key;
 			return mbedtls_ssl_set_hs_own_cert(ctx, ret->cert->c, ret->key->k);
 		}
 	}
