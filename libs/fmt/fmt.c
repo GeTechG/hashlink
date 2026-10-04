@@ -160,10 +160,13 @@ HL_PRIM void HL_NAME(img_scale)( vbyte *out, int outPos, int outStride, int outW
 				int w3 = (int)(rx1 * ry * 256.0f);
 				int w4 = (int)(rx * ry * 256.0f);
 				vbyte *rin = in + iy * inStride;
+				// a 1 pixel wide or high source has no next column or row
+				vbyte *rin2 = iy + 1 < inHeight ? rin + inStride : rin;
+				int ix2 = ix + 1 < inWidth ? ix + 1 : ix;
 				pixel p1 = *(pixel*)(rin + (ix<<2));
-				pixel p2 = *(pixel*)(rin + ((ix + 1)<<2));
-				pixel p3 = *(pixel*)(rin + inStride + (ix<<2));
-				pixel p4 = *(pixel*)(rin + inStride + ((ix + 1)<<2));
+				pixel p2 = *(pixel*)(rin + (ix2<<2));
+				pixel p3 = *(pixel*)(rin2 + (ix<<2));
+				pixel p4 = *(pixel*)(rin2 + (ix2<<2));
 				*out++ = (unsigned char)((p1.a * w1 + p2.a * w2 + p3.a * w3 + p4.a * w4 + 128)>>8);
 				*out++ = (unsigned char)((p1.r * w1 + p2.r * w2 + p3.r * w3 + p4.r * w4 + 128)>>8);
 				*out++ = (unsigned char)((p1.g * w1 + p2.g * w2 + p3.g * w3 + p4.g * w4 + 128)>>8);
@@ -383,8 +386,8 @@ static int ogg_memseek( fmt_ogg *o, ogg_int64_t _offset, int mode ) {
 		o->pos += offset;
 		break;
 	case SEEK_END:
-		if( offset < 0 || offset > o->size ) return 1;
-		o->pos = o->size - offset;
+		if( offset > 0 || o->size + offset < 0 ) return 1;
+		o->pos = o->size + offset;
 		break;
 	}
 	return 0;

@@ -48,12 +48,13 @@ static bool hl_video_init( hl_video *v, const char *file ) {
 	if( codec == NULL )
 		return false;
 	v->codec = avcodec_alloc_context3(codec);
-	avcodec_copy_context(v->codec, codecOrig);
+	if( v->codec == NULL || avcodec_copy_context(v->codec, codecOrig) < 0 )
+		return false;
 	if( avcodec_open2(v->codec, codec,NULL) < 0 )
 		return false;
 	v->frame = av_frame_alloc();
 	v->scale = sws_getContext(v->codec->width,v->codec->height, v->codec->pix_fmt, v->codec->width, v->codec->height, AV_PIX_FMT_RGBA, SWS_BILINEAR, NULL, NULL, NULL);
-	return true;
+	return v->frame != NULL && v->scale != NULL;
 }
 
 HL_PRIM hl_video *HL_NAME(video_open)( const char *file ) {

@@ -800,7 +800,7 @@ HL_PRIM void HL_NAME(al_get_sourcedv_soft)(unsigned source, int param, vbyte *va
 	alGetSourcedvSOFT(source, param, (ALdouble*)values);
 }
 
-#define I64_COMBINE(hi, lo) (((ALint64SOFT)hi) << 32) | lo
+#define I64_COMBINE(hi, lo) ((((ALint64SOFT)(hi)) << 32) | (unsigned int)(lo))
 #define I64_HI(v) v >> 32
 #define I64_LO(v) v & 0xFFFFFFFF;
 

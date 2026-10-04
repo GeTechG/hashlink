@@ -75,8 +75,23 @@ static void on_close( uv_handle_t *h ) {
 	free(h);
 }
 
+// libuv callbacks run inside uv_run : unblock the thread if the loop was run as blocking
+static bool callb_enter() {
+	bool b = hl_is_blocking();
+	if( b ) hl_blocking(false);
+	return b;
+}
+
+#define callb_leave(b)	if( b ) hl_blocking(true)
+
+static void on_close_cb( uv_handle_t *h ) {
+	bool blocking = callb_enter();
+	on_close(h);
+	callb_leave(blocking);
+}
+
 static void free_handle( void *h ) {
-	if( h ) uv_close((uv_handle_t*)h, on_close);
+	if( h ) uv_close((uv_handle_t*)h, on_close_cb);
 }
 
 HL_PRIM void HL_NAME(close_handle)( uv_handle_t *h, vclosure *c ) {
@@ -93,8 +108,10 @@ static void on_write( uv_write_t *wr, int status ) {
 	vdynamic *args = &b;
 	b.t = &hlt_bool;
 	b.v.b = status == 0;
+	bool blocking = callb_enter();
 	trigger_callb((uv_handle_t*)wr,EVT_WRITE,&args,1,false);
 	on_close((uv_handle_t*)wr);
+	callb_leave(blocking);
 }
 
 HL_PRIM bool HL_NAME(stream_write)( uv_stream_t *s, vbyte *b, int size, vclosure *c ) {
@@ -128,7 +145,9 @@ static void on_read( uv_stream_t *s, ssize_t nread, const uv_buf_t *buf ) {
 	len.v.i = (int)nread;
 	args[0] = &bytes;
 	args[1] = &len;
+	bool blocking = callb_enter();
 	trigger_callb((uv_handle_t*)s,EVT_READ,args,2,true);
+	callb_leave(blocking);
 	free(buf->base);
 }
 
@@ -143,7 +162,9 @@ HL_PRIM void HL_NAME(stream_read_stop)( uv_stream_t *s ) {
 }
 
 static void on_listen( uv_stream_t *s, int status ) {
+	bool blocking = callb_enter();
 	trigger_callb((uv_handle_t*)s, EVT_LISTEN, NULL, 0, true);
+	callb_leave(blocking);
 }
 
 HL_PRIM bool HL_NAME(stream_listen)( uv_stream_t *s, int count, vclosure *c ) {
@@ -175,8 +196,10 @@ static void on_connect( uv_connect_t *cnx, int status ) {
 	vdynamic *args = &b;
 	b.t = &hlt_bool;
 	b.v.b = status == 0;
+	bool blocking = callb_enter();
 	trigger_callb((uv_handle_t*)cnx,EVT_CONNECT,&args,1,false);
 	on_close((uv_handle_t*)cnx);
+	callb_leave(blocking);
 }
 
 HL_PRIM uv_connect_t *HL_NAME(tcp_connect_wrap)( uv_tcp_t *t, int host, int port, vclosure *c ) {
@@ -212,11 +235,11 @@ HL_PRIM uv_tcp_t *HL_NAME(tcp_accept_wrap)( uv_tcp_t *t ) {
 		free(client);
 		return NULL;
 	}
+	init_hl_data((uv_handle_t*)client);
 	if( uv_accept((uv_stream_t*)t,(uv_stream_t*)client) < 0 ) {
-		uv_close((uv_handle_t*)client, NULL);
+		free_handle(client);
 		return NULL;
 	}
-	init_hl_data((uv_handle_t*)client);
 	return client;
 }
 
@@ -234,7 +257,9 @@ static void on_fs_event(uv_fs_event_t* handle, const char* filename, int events,
 	vdynamic* args[1];
 	args[0] = &ev;
 
+	bool blocking = callb_enter();
 	trigger_callb((uv_handle_t*)handle, EVT_FS, args, 1, true);
+	callb_leave(blocking);
 }
 
 static void on_fs_event_ex(uv_fs_event_t* handle, const char* filename, int events, int status) {
@@ -250,7 +275,9 @@ static void on_fs_event_ex(uv_fs_event_t* handle, const char* filename, int even
 	args[0] = &name;
 	args[1] = &ev;
 
+	bool blocking = callb_enter();
 	trigger_callb((uv_handle_t*)handle, EVT_FS_EX, args, 2, true);
+	callb_leave(blocking);
 }
 
 HL_PRIM uv_fs_event_t* HL_NAME(fs_start_wrap)(uv_loop_t* loop, vclosure* cb, char* path) {
@@ -310,6 +337,8 @@ DEFINE_PRIM(_BOOL, fs_stop_wrap, _FS);
 
 // loop
 
+HL_PRIM int HL_NAME(run_wrap)( uv_loop_t *loop, int mode );
+
 HL_PRIM uv_loop_t *HL_NAME(create_loop)() {
 	uv_loop_t *l = (uv_loop_t*)hl_gc_alloc_noptr(sizeof(uv_loop_t));
 	uv_loop_init(l);
@@ -319,7 +348,7 @@ HL_PRIM uv_loop_t *HL_NAME(create_loop)() {
 DEFINE_PRIM(_LOOP, create_loop, _NO_ARG);
 DEFINE_PRIM(_LOOP, default_loop, _NO_ARG);
 DEFINE_PRIM(_I32, loop_close, _LOOP);
-DEFINE_PRIM(_I32 HL_CALLB, run, _LOOP _I32);
+DEFINE_PRIM_WITH_NAME(_I32 HL_CALLB, run_wrap, _LOOP _I32, run);
 DEFINE_PRIM(_I32, loop_alive, _LOOP);
 DEFINE_PRIM(_VOID, stop, _LOOP);
 
@@ -332,7 +361,11 @@ HL_PRIM int HL_NAME(loop_close_wrap)(uv_loop_t* loop) {
 }
 
 HL_PRIM int HL_NAME(run_wrap)(uv_loop_t* loop, int mode) {
-	return uv_run(loop, (uv_run_mode)mode);
+	int ret;
+	hl_blocking(true);
+	ret = uv_run(loop, (uv_run_mode)mode);
+	hl_blocking(false);
+	return ret;
 }
 
 HL_PRIM int HL_NAME(loop_alive_wrap)(uv_loop_t* loop) {

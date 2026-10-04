@@ -42,8 +42,10 @@ HL_PRIM int HL_NAME(vhacd_get_n_convex_hulls)(vhacd* pVhacd) {
 HL_PRIM bool HL_NAME(vhacd_get_convex_hull)(vhacd* pVhacd, int index, convex_hull* pConvexHull) {
 	pVhacd->convexHulls.emplace_back();
 	VHACD::IVHACD::ConvexHull& convexHull = pVhacd->convexHulls.back();
-	if (!pVhacd->pInstance->GetConvexHull(index, convexHull))
+	if (!pVhacd->pInstance->GetConvexHull(index, convexHull)) {
+		pVhacd->convexHulls.pop_back();
 		return false;
+	}
 
 	pConvexHull->points = (vbyte*)convexHull.m_points.data();
 	pConvexHull->pointCount = (int)convexHull.m_points.size();
@@ -66,6 +68,7 @@ HL_PRIM bool HL_NAME(vhacd_get_convex_hull)(vhacd* pVhacd, int index, convex_hul
 
 HL_PRIM void HL_NAME(vhacd_clean)(vhacd* pVhacd) {
 	pVhacd->pInstance->Clean();
+	pVhacd->convexHulls.clear();
 }
 
 HL_PRIM void HL_NAME(vhacd_release)(vhacd* pVhacd) {
