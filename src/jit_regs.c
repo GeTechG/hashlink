@@ -384,7 +384,10 @@ static void regs_compute_liveness( regs_ctx *ctx ) {
 				if( v && IS_NULL(v->pref_reg) )
 					v->pref_reg = r;
 			}
-			if( !needs_push && e->mode != M_NORET ) ctx->has_direct_call = true;
+			// the null access calls are jumps to a stub that has its own shadow space, the other calls that
+			// do not return (throw) still need one
+			bool stub = e->op == CALL_PTR && (e->value == (uint64)hl_null_access || e->value == (uint64)hl_jit_null_field_access);
+			if( !needs_push && !stub ) ctx->has_direct_call = true;
 			if( write && IS_NULL(write->pref_reg) )
 				write->pref_reg = REG_CFG(REG_MODE(e->mode))->ret;
 		} else switch( e->op ) {
@@ -841,7 +844,10 @@ static void regs_emit_instrs( regs_ctx *ctx ) {
 		case JUMP_TABLE:
 			{
 				bool noret = e.op == JCOND && e.mode == M_NORET;
-				if( !noret ) flush_phis(ctx,cur_block, e.op == JCOND ? PHI_COND: PHI_JUMP);
+				// a jcond to the next instr reaches the next block on both edges : its phis are moved
+				// before the jump, the taken edge would skip the ones written after it
+				bool next = e.op == JCOND && e.size_offs == 0;
+				if( !noret ) flush_phis(ctx,cur_block, next ? PHI_NEXT : e.op == JCOND ? PHI_COND: PHI_JUMP);
 				if( e.op == JUMP_TABLE ) {
 					// copy args (remap later)
 					hl_emit_store_args(jit->emit,&e,hl_emit_get_args(jit->emit,&e),e.nargs);

@@ -361,6 +361,19 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # jitcodegen.hl
+
+    add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/jitcodegen.hl
+        COMMAND ${HAXE_COMPILER}
+            ${HAXE_HL_FLAGS}
+            -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/jitcodegen.hl
+            -cp ${CMAKE_SOURCE_DIR}/other/tests -main JitCodegen
+    )
+    add_custom_target(jitcodegen.hl ALL
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/jitcodegen.hl
+    )
+
+    #####################
     # closuresingle.hl
 
     add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/closuresingle.hl
@@ -626,6 +639,9 @@ if(BUILD_TESTING)
         )
         add_test(NAME todyn.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/todyn.hl
+        )
+        add_test(NAME jitcodegen.hl
+            COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/jitcodegen.hl
         )
         add_test(NAME closuresingle.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/closuresingle.hl

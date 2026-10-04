@@ -1137,14 +1137,21 @@ static void emit_lea( code_ctx *ctx, ereg out, einstr *_e ) {
 	if( IS_REG(e.a) )
 		offs += REG_VALUE(e.a);
 
+	ereg saved = UNUSED;
 	if( !IS_REG(e.a) ) {
 		// a is always a mem address !
 		emit_mov(ctx, RTMP, e.a, M_PTR);
 		e.a = RTMP;
 		if( e.b && !IS_REG(e.b) ) {
 			if( !IS_REG(out) ) jit_assert();
-			emit_mov(ctx, out, e.b, M_I32);
-			e.b = out;
+			ereg idx = out;
+			if( out == RTMP ) {
+				// the result is not in a register and its tmp already holds the base
+				idx = saved = R(RAX);
+				EMIT(_PUSH,saved,UNUSED,M_PTR);
+			}
+			emit_mov(ctx, idx, e.b, M_I32);
+			e.b = idx;
 		}
 	} else if( e.b && !IS_REG(e.b) ) {
 		// b is always an int index !
@@ -1168,6 +1175,7 @@ static void emit_lea( code_ctx *ctx, ereg out, einstr *_e ) {
 		if( !IS_SBYTE(offs) ) jit_assert();
 		B(offs);
 	}
+	if( saved ) EMIT(_POP,saved,UNUSED,M_PTR);
 }
 
 static void align_function( code_ctx *ctx ) {
