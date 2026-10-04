@@ -17,7 +17,7 @@ package sdl;
 	public var __unused : Int;
 	public var windowId : Int;
 	public var dropFile: hl.Bytes;
-	/** UTF-8 text: the committed text for TextInput (`keyCode` holds only its first character), the composition for TextEditing (`value` = start, `reference` = length). */
+	/** UTF-8 text: the committed text for TextInput (`keyCode` holds only its first 4 bytes), the composition for TextEditing (`value` = start, `reference` = length). */
 	public var text: hl.Bytes;
 
 	// for compile-time backward compatibility
