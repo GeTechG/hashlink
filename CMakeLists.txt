@@ -309,6 +309,19 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # i64tofloat.hl
+
+    add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/i64tofloat.hl
+        COMMAND ${HAXE_COMPILER}
+            ${HAXE_HL_FLAGS}
+            -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/i64tofloat.hl
+            -cp ${CMAKE_SOURCE_DIR}/other/tests -main I64ToFloat
+    )
+    add_custom_target(i64tofloat.hl ALL
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/i64tofloat.hl
+    )
+
+    #####################
     # reload.hl (hot reload : the other files are the same program built with other defines, see Reload.hx)
 
     set(RELOAD_v1 -D v1)
@@ -477,6 +490,9 @@ if(BUILD_TESTING)
         )
         add_test(NAME manyargs.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/manyargs.hl
+        )
+        add_test(NAME i64tofloat.hl
+            COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/i64tofloat.hl
         )
         add_test(NAME reload.hl
             COMMAND hl --hot-reload ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl
