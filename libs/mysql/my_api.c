@@ -32,21 +32,8 @@
 #endif
 
 static void error( MYSQL *m, const char *err, const char *param ) {
-	if( param ) {
-		unsigned int max = MAX_ERR_SIZE - (strlen(err) + 3);
-		if( strlen(param) > max ) {
-			char *p2 = (char*)malloc(max + 1);
-			memcpy(p2,param,max-3);
-			p2[max - 3] = '.';
-			p2[max - 2] = '.';
-			p2[max - 1] = '.';
-			p2[max] = 0;
-			sprintf(m->last_error,err,param);
-			free(p2);
-			return;
-		}
-	}
-	sprintf(m->last_error,err,param);
+	if( snprintf(m->last_error,MAX_ERR_SIZE,err,param) >= MAX_ERR_SIZE )
+		memcpy(m->last_error + MAX_ERR_SIZE - 4,"...",3);
 	m->errcode = -1;
 }
 
@@ -480,7 +467,7 @@ MYSQL_ROW mysql_fetch_row( MYSQL_RES * r ) {
 		// next
 		cur++;
 	}
-	if( cur >= r->rows + r->row_count ) {		
+	if( cur == NULL || cur >= r->rows + r->row_count ) {
 		free(r->rows);
 		r->rows = NULL;
 		r->memory_rows = 0;

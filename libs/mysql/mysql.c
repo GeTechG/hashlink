@@ -88,6 +88,8 @@ HL_PRIM int HL_NAME(result_get_nfields)( result *r ) {
 
 HL_PRIM varray *HL_NAME(result_get_fields_names)( result *r ) {
 	int k;
+	if( r->r == NULL )
+		return hl_alloc_array(&hlt_bytes,0);
 	MYSQL_FIELD *fields = mysql_fetch_fields(r->r);
 	varray *a = hl_alloc_array(&hlt_bytes,r->nfields);
 	for(k=0;k<r->nfields;k++)
@@ -97,7 +99,10 @@ HL_PRIM varray *HL_NAME(result_get_fields_names)( result *r ) {
 
 HL_PRIM vdynamic *HL_NAME(result_next)( result *r ) {
 	unsigned long *lengths = NULL;
+	if( r->r == NULL )
+		return NULL;
 	MYSQL_ROW row = mysql_fetch_row(r->r);
+	r->current = row;
 	if( row == NULL )
 		return NULL;
 	int i;
@@ -109,7 +114,6 @@ HL_PRIM vdynamic *HL_NAME(result_next)( result *r ) {
 	pargs[0] = &arg;
 	pargs[1] = &length;
 	length.t = &hlt_i32;
-	r->current = row;
 	for(i=0;i<r->nfields;i++) {
 		if( row[i] == NULL ) continue;		
 		vdynamic *value = NULL;
