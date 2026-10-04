@@ -31,6 +31,7 @@ static hl_alloc callback_alloc = {0};
 static ptr_set callback_natives = {0};
 
 void hl_jit_tag_callback( void *native ) {
+	if( ptr_set_exists(callback_natives,native) ) return;
 	ptr_set_add_impl(&callback_alloc,&callback_natives,native);
 }
 
@@ -171,6 +172,10 @@ void hl_jit_free( jit_ctx *ctx, h_bool can_reset ) {
 		ctx->output = NULL;
 		ctx->out_max = 0;
 		ctx->out_pos = 0;
+		// and the codegen tables : they live in galloc, start again from an empty codegen
+		hl_codegen_free(ctx);
+		hl_free(&ctx->galloc);
+		hl_codegen_alloc(ctx);
 		return;
 	}
 	hl_codegen_free(ctx);

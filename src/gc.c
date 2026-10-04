@@ -1325,7 +1325,7 @@ retry_jit_alloc:
 #else
 	void *p;
 	p = mmap(NULL,size,PROT_READ|PROT_WRITE|PROT_EXEC,(MAP_PRIVATE|MAP_ANONYMOUS),-1,0);
-	return p;
+	return p == MAP_FAILED ? NULL : p;
 #endif
 }
 

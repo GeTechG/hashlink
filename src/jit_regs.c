@@ -1030,6 +1030,7 @@ void hl_regs_alloc( jit_ctx *jit ) {
 	regs_ctx *ctx = malloc(sizeof(regs_ctx));
 	memset(ctx,0,sizeof(regs_ctx));
 	ctx->jit = jit;
+	ctx->flushed = true; // nothing to flush (error dump) until hl_regs_function has run
 	jit->regs = ctx;
 }
 

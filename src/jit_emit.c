@@ -1207,6 +1207,7 @@ void hl_emit_free( jit_ctx *jit ) {
 	free(ctx->vregs);
 	free(ctx->instrs);
 	free(ctx->pos_map);
+	free(ctx->phis);
 	free(ctx);
 	jit->emit = NULL;
 }
