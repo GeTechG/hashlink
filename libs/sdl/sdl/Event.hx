@@ -7,7 +7,7 @@ package sdl;
 	public var mouseXRel : Int;
 	public var mouseYRel : Int;
 	public var button : Int;
-	public var wheelDelta : Int;
+	public var wheelDelta : Single;
 	public var state : WindowStateChange;
 	public var keyCode : Int;
 	public var scanCode : Int;
@@ -17,7 +17,7 @@ package sdl;
 	public var __unused : Int;
 	public var windowId : Int;
 	public var dropFile: hl.Bytes;
-	/** UTF-8 composition text, for TextEditing (`value` = start, `reference` = length). */
+	/** UTF-8 text: the committed text for TextInput (`keyCode` holds only its first character), the composition for TextEditing (`value` = start, `reference` = length). */
 	public var text: hl.Bytes;
 
 	// for compile-time backward compatibility

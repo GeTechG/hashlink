@@ -700,7 +700,7 @@ HL_PRIM vdynamic *HL_NAME(gl_create_vertex_array)() {
 }
 
 HL_PRIM void HL_NAME(gl_bind_vertex_array)( vdynamic *b ) {
-	unsigned int bb = (unsigned)b->v.i;
+	unsigned int bb = b ? (unsigned)b->v.i : 0;
 	glBindVertexArray(bb);
 }
 

@@ -92,7 +92,7 @@ typedef struct {
 	int mouseXRel;
 	int mouseYRel;
 	int button;
-	int wheelDelta;
+	float wheelDelta;
 	ws_change state;
 	int keyCode;
 	int scanCode;
@@ -171,9 +171,10 @@ HL_PRIM void HL_NAME(gl_options)( int major, int minor, int depth, int stencil, 
 static bool hint_window_grab_keyboard = false;
 
 HL_PRIM bool HL_NAME(hint_value)( vbyte* name, vbyte* value) {
+	bool ok = SDL_SetHint((char*)name, (char*)value);
 	if( strcmp( (char*)name, "SDL_GRAB_KEYBOARD" ) == 0 )
-		hint_window_grab_keyboard = value != 0;
-	return SDL_SetHint((char*)name, (char*)value) == true;
+		hint_window_grab_keyboard = SDL_GetHintBoolean((char*)name, false);
+	return ok;
 }
 
 HL_PRIM int HL_NAME(event_poll)( SDL_Event *e ) {
@@ -301,8 +302,8 @@ HL_PRIM bool HL_NAME(event_loop)( event_data *event ) {
 #						if SDL_VERSION_ATLEAST(2,0,4)
 			if (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) event->wheelDelta *= -1;
 #						endif
-			event->mouseX = e.wheel.x;
-			event->mouseY = e.wheel.y;
+			event->mouseX = (int)e.wheel.mouse_x;
+			event->mouseY = (int)e.wheel.mouse_y;
 			break;
 		case SDL_EVENT_TEXT_EDITING:
 			event->type = TextEditing;
@@ -316,6 +317,7 @@ HL_PRIM bool HL_NAME(event_loop)( event_data *event ) {
 			event->window = e.text.windowID;
 			event->keyCode = *(int*)e.text.text;
 			event->keyCode &= e.text.text[0] ? e.text.text[1] ? e.text.text[2] ? e.text.text[3] ? 0xFFFFFFFF : 0xFFFFFF : 0xFFFF : 0xFF : 0;
+			event->text = hl_copy_bytes((vbyte*)e.text.text, (int)strlen(e.text.text) + 1);
 			break;
 		case SDL_EVENT_GAMEPAD_ADDED:
 			event->type = GControllerAdded;
@@ -1256,7 +1258,10 @@ static void FileDialogCallback(void *userdata, const char* const *filelist, int 
 		}
 	}
 
-	hl_call1( void, data->closure, varray*, array );
+	bool isExc;
+	vdynamic *exc = hl_dyn_call_safe(data->closure, (vdynamic**)&array, 1, &isExc);
+	if( isExc )
+		hl_print_uncaught_exception(exc);
 	hl_remove_root( &data->closure );
 
 	for( int i=0; i<data->filters_size; i++) {
