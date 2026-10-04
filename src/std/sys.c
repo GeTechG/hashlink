@@ -43,7 +43,6 @@
 #	include <psapi.h>
 #	define getenv _wgetenv
 #	define putenv _wputenv
-#	define getcwd(buf,size) (void*)(int_val)GetCurrentDirectoryW(size,buf)
 #	define chdir	!SetCurrentDirectoryW
 #	define system	_wsystem
 typedef struct _stat32 pstat;
@@ -351,16 +350,33 @@ HL_PRIM bool hl_sys_set_time_locale( vbyte *l ) {
 
 
 HL_PRIM vbyte *hl_sys_get_cwd() {
-	pchar buf[256 + 1]; // room for the trailing slash
+	pchar *buf;
 	int l;
-	if( getcwd(buf,256) == NULL )
+#ifdef HL_WIN
+	int size = (int)GetCurrentDirectoryW(0,NULL); // includes the terminating 0
+	if( size == 0 )
 		return NULL;
+	buf = (pchar*)hl_gc_alloc_noptr((size + 1) * sizeof(pchar)); // room for the trailing slash
+	l = (int)GetCurrentDirectoryW(size,buf);
+	if( l == 0 || l >= size ) // failed, or changed to a longer one by another thread
+		return NULL;
+#else
+	int size = 256;
+	while( true ) {
+		buf = (pchar*)hl_gc_alloc_noptr(size + 1); // room for the trailing slash
+		if( getcwd(buf,size) != NULL )
+			break;
+		if( errno != ERANGE )
+			return NULL;
+		size *= 2;
+	}
 	l = (int)pstrlen(buf);
+#endif
 	if( l == 0 || (buf[l-1] != '/' && buf[l-1] != '\\') ) {
 		buf[l] = '/';
 		buf[l+1] = 0;
 	}
-	return (vbyte*)pstrdup(buf,-1);
+	return (vbyte*)buf;
 }
 
 HL_PRIM bool hl_sys_set_cwd( vbyte *dir ) {
