@@ -64,6 +64,31 @@ struct _hl_ssl_pkey {
 	mbedtls_pk_context *k;
 };
 
+// mbedTLS state lives in a finalizer block, which the GC does not scan : the handle given to Haxe
+// is a scanned block that keeps alive what mbedTLS only knows by raw pointer
+typedef struct _hl_ssl_conf_state hl_ssl_conf_state;
+struct _hl_ssl_conf_state {
+	void(*finalize)(hl_ssl_conf_state *);
+	mbedtls_ssl_config c;
+};
+
+typedef struct {
+	hl_ssl_conf_state *st;
+	vclosure *sni;
+} hl_ssl_conf;
+
+typedef struct _hl_ssl_state hl_ssl_state;
+struct _hl_ssl_state {
+	void(*finalize)(hl_ssl_state *);
+	mbedtls_ssl_context s;
+};
+
+typedef struct {
+	hl_ssl_state *st;
+	hl_ssl_conf *conf;
+	void *bio; // socket handle or bio array
+} hl_ssl_ctx;
+
 #define _SOCK	_ABSTRACT(hl_socket)
 #define TSSL _ABSTRACT(mbedtls_ssl_context)
 #define TCONF _ABSTRACT(mbedtls_ssl_config)
@@ -105,26 +130,40 @@ static int ssl_error(int ret) {
 	return ret;
 }
 
-HL_PRIM mbedtls_ssl_context *HL_NAME(ssl_new)(mbedtls_ssl_config *config) {
+// the config can be finalized in the same GC cycle, before us : mbedtls_ssl_config_free leaves it
+// zeroed and its memory is still there, which mbedtls_ssl_free copes with
+static void ssl_finalize(hl_ssl_state *st) {
+	mbedtls_ssl_free(&st->s);
+}
+
+HL_PRIM hl_ssl_ctx *HL_NAME(ssl_new)(hl_ssl_conf *config) {
 	int ret;
-	mbedtls_ssl_context *ssl;
-	ssl = (mbedtls_ssl_context *)hl_gc_alloc_noptr(sizeof(mbedtls_ssl_context));
-	mbedtls_ssl_init(ssl);
-	if ((ret = mbedtls_ssl_setup(ssl, config)) != 0) {
-		mbedtls_ssl_free(ssl);
+	hl_ssl_ctx *ssl = (hl_ssl_ctx*)hl_gc_alloc_raw(sizeof(hl_ssl_ctx));
+	ssl->st = NULL;
+	ssl->conf = config;
+	ssl->bio = NULL;
+	ssl->st = (hl_ssl_state*)hl_gc_alloc_finalizer(sizeof(hl_ssl_state));
+	ssl->st->finalize = NULL;
+	mbedtls_ssl_init(&ssl->st->s);
+	if ((ret = mbedtls_ssl_setup(&ssl->st->s, &config->st->c)) != 0) {
+		mbedtls_ssl_free(&ssl->st->s);
 		ssl_error(ret);
 		return NULL;
 	}
+	ssl->st->finalize = ssl_finalize;
 	return ssl;
 }
 
-HL_PRIM void HL_NAME(ssl_close)(mbedtls_ssl_context *ssl) {
-	mbedtls_ssl_free(ssl);
+HL_PRIM void HL_NAME(ssl_close)(hl_ssl_ctx *ssl) {
+	ssl->st->finalize = NULL;
+	mbedtls_ssl_free(&ssl->st->s);
+	ssl->conf = NULL;
+	ssl->bio = NULL;
 }
 
-HL_PRIM int HL_NAME(ssl_handshake)(mbedtls_ssl_context *ssl) {
+HL_PRIM int HL_NAME(ssl_handshake)(hl_ssl_ctx *ssl) {
 	int r;
-	r = mbedtls_ssl_handshake(ssl);
+	r = mbedtls_ssl_handshake(&ssl->st->s);
 	if( is_ssl_blocking(r) )
 		return -1;
 	if( r == MBEDTLS_ERR_SSL_CONN_EOF )
@@ -155,14 +194,18 @@ static int net_read(void *fd, unsigned char *buf, size_t len) {
 }
 
 static int net_write(void *fd, const unsigned char *buf, size_t len) {
-	int r = send((SOCKET)(int_val)fd, (char *)buf, (int)len, MSG_NOSIGNAL);
+	int r;
+	hl_blocking(true);
+	r = send((SOCKET)(int_val)fd, (char *)buf, (int)len, MSG_NOSIGNAL);
+	hl_blocking(false);
 	if( r == SOCKET_ERROR && is_block_error() )
 		return MBEDTLS_ERR_SSL_WANT_WRITE;
 	return r;
 }
 
-HL_PRIM void HL_NAME(ssl_set_socket)(mbedtls_ssl_context *ssl, hl_socket *socket) {
-	mbedtls_ssl_set_bio(ssl, (void*)(int_val)socket->sock, net_write, net_read, NULL);
+HL_PRIM void HL_NAME(ssl_set_socket)(hl_ssl_ctx *ssl, hl_socket *socket) {
+	ssl->bio = socket;
+	mbedtls_ssl_set_bio(&ssl->st->s, (void*)(int_val)socket->sock, net_write, net_read, NULL);
 }
 
 static int arr_read( void *arr, unsigned char *buf, size_t len ) {
@@ -177,19 +220,42 @@ static int arr_write( void *arr, const unsigned char *buf, size_t len ) {
 	return r;
 }
 
-HL_PRIM void HL_NAME(ssl_set_bio)( mbedtls_ssl_context *ssl, varray *ctx ) {
-	mbedtls_ssl_set_bio(ssl, ctx, arr_write, arr_read, NULL);	
+HL_PRIM void HL_NAME(ssl_set_bio)( hl_ssl_ctx *ssl, varray *ctx ) {
+	ssl->bio = ctx;
+	mbedtls_ssl_set_bio(&ssl->st->s, ctx, arr_write, arr_read, NULL);
 }
 
-HL_PRIM void HL_NAME(ssl_set_hostname)(mbedtls_ssl_context *ssl, vbyte *hostname) {
+HL_PRIM void HL_NAME(ssl_set_hostname)(hl_ssl_ctx *ssl, vbyte *hostname) {
 	int ret;
-	if ((ret = mbedtls_ssl_set_hostname(ssl, (char*)hostname)) != 0)
+	if ((ret = mbedtls_ssl_set_hostname(&ssl->st->s, (char*)hostname)) != 0)
 		ssl_error(ret);
 }
 
-HL_PRIM hl_ssl_cert *HL_NAME(ssl_get_peer_certificate)(mbedtls_ssl_context *ssl) {
-	hl_ssl_cert *cert = (hl_ssl_cert*)hl_gc_alloc_noptr(sizeof(hl_ssl_cert));
-	cert->c = (mbedtls_x509_crt*)mbedtls_ssl_get_peer_cert(ssl);
+HL_PRIM hl_ssl_cert *HL_NAME(ssl_get_peer_certificate)(hl_ssl_ctx *ssl) {
+	int r = 0;
+	hl_ssl_cert *cert;
+	mbedtls_x509_crt *x;
+	const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&ssl->st->s);
+	if( peer == NULL )
+		return NULL;
+	// the peer chain belongs to the session : copy it, it must outlive the connection
+	x = (mbedtls_x509_crt*)malloc(sizeof(mbedtls_x509_crt));
+	if( x == NULL )
+		hl_error("Out of memory");
+	mbedtls_x509_crt_init(x);
+	while( peer && r == 0 ) {
+		r = mbedtls_x509_crt_parse_der(x, peer->raw.p, peer->raw.len);
+		peer = peer->next;
+	}
+	if( r != 0 ) {
+		mbedtls_x509_crt_free(x);
+		free(x);
+		ssl_error(r);
+		return NULL;
+	}
+	cert = (hl_ssl_cert*)hl_gc_alloc_finalizer(sizeof(hl_ssl_cert));
+	cert->c = x;
+	cert->finalize = cert_finalize;
 	return cert;
 }
 
@@ -201,33 +267,33 @@ DEFINE_PRIM(_VOID, ssl_set_socket, TSSL _SOCK);
 DEFINE_PRIM(_VOID, ssl_set_hostname, TSSL _BYTES);
 DEFINE_PRIM(TCERT, ssl_get_peer_certificate, TSSL);
 
-HL_PRIM int HL_NAME(ssl_send_char)(mbedtls_ssl_context *ssl, int c) {
+HL_PRIM int HL_NAME(ssl_send_char)(hl_ssl_ctx *ssl, int c) {
 	unsigned char cc;
 	int r;
 	cc = (unsigned char)c;
-	r = mbedtls_ssl_write(ssl, &cc, 1);
+	r = mbedtls_ssl_write(&ssl->st->s, &cc, 1);
 	if( r < 0 )
 		return ssl_block_error(r);
 	return 1;
 }
 
-HL_PRIM int HL_NAME(ssl_send)(mbedtls_ssl_context *ssl, vbyte *buf, int pos, int len) {
-	int r = mbedtls_ssl_write(ssl, (const unsigned char *)buf + pos, len);
+HL_PRIM int HL_NAME(ssl_send)(hl_ssl_ctx *ssl, vbyte *buf, int pos, int len) {
+	int r = mbedtls_ssl_write(&ssl->st->s, (const unsigned char *)buf + pos, len);
 	if( r < 0 ) 
 		return ssl_block_error(r);
 	return r;
 }
 
-HL_PRIM int HL_NAME(ssl_recv_char)(mbedtls_ssl_context *ssl) {
+HL_PRIM int HL_NAME(ssl_recv_char)(hl_ssl_ctx *ssl) {
 	unsigned char c;
-	int ret = mbedtls_ssl_read(ssl, &c, 1);
+	int ret = mbedtls_ssl_read(&ssl->st->s, &c, 1);
 	if( ret != 1 )
 		return ssl_block_error(ret);
 	return c;
 }
 
-HL_PRIM int HL_NAME(ssl_recv)(mbedtls_ssl_context *ssl, vbyte *buf, int pos, int len) {
-	int ret = mbedtls_ssl_read(ssl, (unsigned char*)buf+pos, len);
+HL_PRIM int HL_NAME(ssl_recv)(hl_ssl_ctx *ssl, vbyte *buf, int pos, int len) {
+	int ret = mbedtls_ssl_read(&ssl->st->s, (unsigned char*)buf+pos, len);
 	if( ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY )
 		return 0;
 	if( ret < 0 )
@@ -240,43 +306,53 @@ DEFINE_PRIM(_I32, ssl_send, TSSL _BYTES _I32 _I32);
 DEFINE_PRIM(_I32, ssl_recv_char, TSSL);
 DEFINE_PRIM(_I32, ssl_recv, TSSL _BYTES _I32 _I32);
 
-HL_PRIM mbedtls_ssl_config *HL_NAME(conf_new)(bool server) {
+static void conf_finalize(hl_ssl_conf_state *st) {
+	mbedtls_ssl_config_free(&st->c);
+}
+
+HL_PRIM hl_ssl_conf *HL_NAME(conf_new)(bool server) {
 	int ret;
-	mbedtls_ssl_config *conf;
-	conf = (mbedtls_ssl_config *)hl_gc_alloc_noptr(sizeof(mbedtls_ssl_config));
-	mbedtls_ssl_config_init(conf);
-	if ((ret = mbedtls_ssl_config_defaults(conf, server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
+	hl_ssl_conf *conf = (hl_ssl_conf*)hl_gc_alloc_raw(sizeof(hl_ssl_conf));
+	conf->st = NULL;
+	conf->sni = NULL;
+	conf->st = (hl_ssl_conf_state*)hl_gc_alloc_finalizer(sizeof(hl_ssl_conf_state));
+	conf->st->finalize = NULL;
+	mbedtls_ssl_config_init(&conf->st->c);
+	if ((ret = mbedtls_ssl_config_defaults(&conf->st->c, server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
 		MBEDTLS_SSL_TRANSPORT_STREAM, 0)) != 0) {
-		mbedtls_ssl_config_free(conf);
+		mbedtls_ssl_config_free(&conf->st->c);
 		ssl_error(ret);
 		return NULL;
 	}
+	conf->st->finalize = conf_finalize;
 #if MBEDTLS_VERSION_MAJOR < 4
-	mbedtls_ssl_conf_rng(conf, mbedtls_ctr_drbg_random, &ctr_drbg);
+	mbedtls_ssl_conf_rng(&conf->st->c, mbedtls_ctr_drbg_random, &ctr_drbg);
 #endif
 	return conf;
 }
 
-HL_PRIM void HL_NAME(conf_close)(mbedtls_ssl_config *conf) {
-	mbedtls_ssl_config_free(conf);
+HL_PRIM void HL_NAME(conf_close)(hl_ssl_conf *conf) {
+	conf->st->finalize = NULL;
+	mbedtls_ssl_config_free(&conf->st->c);
+	conf->sni = NULL;
 }
 
-HL_PRIM void HL_NAME(conf_set_ca)(mbedtls_ssl_config *conf, hl_ssl_cert *cert) {
-	mbedtls_ssl_conf_ca_chain(conf, cert->c, NULL);
+HL_PRIM void HL_NAME(conf_set_ca)(hl_ssl_conf *conf, hl_ssl_cert *cert) {
+	mbedtls_ssl_conf_ca_chain(&conf->st->c, cert->c, NULL);
 }
 
-HL_PRIM void HL_NAME(conf_set_verify)(mbedtls_ssl_config *conf, int mode) {
+HL_PRIM void HL_NAME(conf_set_verify)(hl_ssl_conf *conf, int mode) {
 	if (mode == 2)
-		mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
+		mbedtls_ssl_conf_authmode(&conf->st->c, MBEDTLS_SSL_VERIFY_OPTIONAL);
 	else if (mode == 1)
-		mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+		mbedtls_ssl_conf_authmode(&conf->st->c, MBEDTLS_SSL_VERIFY_REQUIRED);
 	else
-		mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_NONE);
+		mbedtls_ssl_conf_authmode(&conf->st->c, MBEDTLS_SSL_VERIFY_NONE);
 }
 
-HL_PRIM void HL_NAME(conf_set_cert)(mbedtls_ssl_config *conf, hl_ssl_cert *cert, hl_ssl_pkey *key) {
+HL_PRIM void HL_NAME(conf_set_cert)(hl_ssl_conf *conf, hl_ssl_cert *cert, hl_ssl_pkey *key) {
 	int r;
-	if ((r = mbedtls_ssl_conf_own_cert(conf, cert->c, key->k)) != 0)
+	if ((r = mbedtls_ssl_conf_own_cert(&conf->st->c, cert->c, key->k)) != 0)
 		ssl_error(r);
 }
 
@@ -290,10 +366,14 @@ static int sni_callback(void *arg, mbedtls_ssl_context *ctx, const unsigned char
 	if (name && arg) {
 		vclosure *c = (vclosure*)arg;
 		sni_callb_ret *ret;
+		// name points into the ClientHello and is not terminated
+		vbyte *hname = hl_gc_alloc_noptr((int)len + 1);
+		memcpy(hname, name, len);
+		hname[len] = 0;
 		if( c->hasValue )
-			ret = ((sni_callb_ret*(*)(void*, vbyte*))c->fun)(c->value, (vbyte*)name);
+			ret = ((sni_callb_ret*(*)(void*, vbyte*))c->fun)(c->value, hname);
 		else
-			ret = ((sni_callb_ret*(*)(vbyte*))c->fun)((vbyte*)name);
+			ret = ((sni_callb_ret*(*)(vbyte*))c->fun)(hname);
 		if (ret && ret->cert && ret->key) {
 			return mbedtls_ssl_set_hs_own_cert(ctx, ret->cert->c, ret->key->k);
 		}
@@ -301,8 +381,9 @@ static int sni_callback(void *arg, mbedtls_ssl_context *ctx, const unsigned char
 	return -1;
 }
 
-HL_PRIM void HL_NAME(conf_set_servername_callback)(mbedtls_ssl_config *conf, vclosure *cb) {
-	mbedtls_ssl_conf_sni(conf, sni_callback, (void *)cb);
+HL_PRIM void HL_NAME(conf_set_servername_callback)(hl_ssl_conf *conf, vclosure *cb) {
+	conf->sni = cb;
+	mbedtls_ssl_conf_sni(&conf->st->c, sni_callback, (void *)cb);
 }
 
 
