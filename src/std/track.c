@@ -104,6 +104,8 @@ static bucket *bucket_find_insert( bucket_list *data, unsigned int hash, void **
 		data->hashes = hnew;
 		data->max_buckets = nbuckets;
 	}
+	// the buckets are about to move
+	data->prev_b = data->prev_b2 = NULL;
 	b = data->buckets + mid;
 	if( data->hashes[mid] == hash && b->stack_count == count ) {
 		int i;
@@ -267,7 +269,7 @@ HL_PRIM int hl_track_get_bits( bool thread ) {
 }
 
 HL_PRIM void hl_track_set_depth( int d ) {
-	track_depth = d;
+	track_depth = d < 0 ? 0 : d > HL_EXC_MAX_STACK ? HL_EXC_MAX_STACK : d;
 }
 
 HL_PRIM void hl_track_set_bits( int flags, bool thread ) {
@@ -283,8 +285,10 @@ HL_PRIM void hl_track_set_bits( int flags, bool thread ) {
 
 HL_PRIM void hl_track_reset() {
 	int i;
-	for(i=0;i<_KLAST;i++)
+	for(i=0;i<_KLAST;i++) {
 		all_data[i].bcount = 0;
+		all_data[i].prev_b = all_data[i].prev_b2 = NULL;
+	}
 }
 
 DEFINE_PRIM(_VOID, track_init, _NO_ARG);
