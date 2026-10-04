@@ -1295,6 +1295,8 @@ void hl_codegen_function( jit_ctx *jit ) {
 	int_arr_free(&ctx->short_jumps);
 	free(ctx->pos_map);
 	ctx->pos_map = (int*)malloc((jit->reg_instr_count + 1) * sizeof(int));
+	// instrs not reached yet are marked, a dump of an interrupted function must not read garbage
+	memset(ctx->pos_map, 0xFF, (jit->reg_instr_count + 1) * sizeof(int));
 	ctx->pos_map[0] = 0;
 	int const_addr_prev = int_arr_count(ctx->const_addr);
 	byte_reserve(ctx->code,64);

@@ -967,6 +967,8 @@ void hl_regs_function( jit_ctx *jit ) {
 	ctx->flushed = false;
 	ctx->has_direct_call = false;
 	ctx->pos_map = (int*)malloc((jit->instr_count + 1) * sizeof(int));
+	// instrs not reached yet are marked, a dump of an interrupted function must not read garbage
+	memset(ctx->pos_map, 0xFF, (jit->instr_count + 1) * sizeof(int));
 	ctx->emit_pos = 0;
 	ctx->cur_op = 0;
 	ctx->stack_size = 0;
