@@ -56,6 +56,7 @@ typedef struct _hl_ssl_cert hl_ssl_cert;
 struct _hl_ssl_cert {
 	void(*finalize)(hl_ssl_cert *);
 	mbedtls_x509_crt *c;
+	hl_ssl_cert *owner; // cert_get_next only : the handle that keeps the chain alive
 };
 
 typedef struct _hl_ssl_pkey hl_ssl_pkey;
@@ -764,8 +765,10 @@ HL_PRIM hl_ssl_cert *HL_NAME(cert_get_next)(hl_ssl_cert *cert) {
 	hl_ssl_cert *ncert;
 	if (cert->c->next == NULL)
 		return NULL;
-	ncert = (hl_ssl_cert*)hl_gc_alloc_noptr(sizeof(hl_ssl_cert));
+	ncert = (hl_ssl_cert*)hl_gc_alloc_raw(sizeof(hl_ssl_cert));
+	ncert->finalize = NULL;
 	ncert->c = cert->c->next;
+	ncert->owner = cert;
 	return ncert;
 }
 
