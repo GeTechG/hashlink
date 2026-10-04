@@ -2265,7 +2265,7 @@ static void emit_opcode( emit_ctx *ctx, hl_opcode *o ) {
 			hl_opcode *next2 = f->ops + ctx->op_pos + 2 + o->p2;
 			void *addr = NULL;
 			int offs = 0;
-			if( cat->op == OCatch || (next->op == OGetGlobal && next2->op == OCall2 && next2->p3 == next->p1 && dst->id == (int)(int_val)next2->extra) ) {
+			if( cat->op == OCatch || (next->op == OGetGlobal && next2 < f->ops + f->nops && next2->op == OCall2 && next2->p3 == next->p1 && dst->id == (int)(int_val)next2->extra) ) {
 				int gindex = cat->op == OCatch ? cat->p1 : next->p2;
 				hl_type *gt = m->code->globals[gindex];
 				while( gt->kind == HOBJ && gt->obj->super ) gt = gt->obj->super;
