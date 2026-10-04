@@ -328,6 +328,11 @@ void hl_codegen_flush( jit_ctx *ctx );
 
 #define reg_str(r) val_str(r,e->mode)
 
+// a negative target is a jump to an op which was not compiled (interrupted function)
+static void dump_jump_target( int target ) {
+	if( target < 0 ) printf("@???"); else printf("@%X", target);
+}
+
 static void dump_instr( jit_ctx *ctx, einstr *e, int cur_pos ) {
 	printf("%s", op_names[e->op]);
 	bool show_size = true;
@@ -372,7 +377,8 @@ static void dump_instr( jit_ctx *ctx, einstr *e, int cur_pos ) {
 		break;
 	case JUMP:
 	case JCOND:
-		printf(" @%X", cur_pos + 1 + e->size_offs);
+		printf(" ");
+		dump_jump_target(cur_pos + 1 + e->size_offs);
 		break;
 	case JUMP_TABLE:
 		{
@@ -380,7 +386,7 @@ static void dump_instr( jit_ctx *ctx, einstr *e, int cur_pos ) {
 			printf(" %s (", reg_str(e->a));
 			for(int k=0;k<e->nargs;k++) {
 				if( k > 0 ) printf(",");
-				printf("@%X", cur_pos + 1 + offsets[k]);
+				dump_jump_target(cur_pos + 1 + offsets[k]);
 			}
 			printf(")");
 		}

@@ -1121,6 +1121,8 @@ void hl_emit_function( jit_ctx *jit ) {
 		if( ctx->pos_map == NULL ) jit_assert();
 		ctx->pos_map_size = f->nops + 1;
 	}
+	// ops not reached yet are marked, a dump of an interrupted function must not read garbage
+	memset(ctx->pos_map, 0xFF, sizeof(int) * (f->nops+1));
 
 	for(i=0;i<f->nregs;i++) {
 		vreg *r = R(i);
