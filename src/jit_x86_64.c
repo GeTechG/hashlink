@@ -1141,26 +1141,10 @@ static void emit_lea( code_ctx *ctx, ereg out, einstr *_e ) {
 	if( IS_REG(e.a) )
 		offs += REG_VALUE(e.a);
 
-	ereg saved = UNUSED;
 	if( !IS_REG(e.a) ) {
 		// a is always a mem address !
 		emit_mov(ctx, RTMP, e.a, M_PTR);
 		e.a = RTMP;
-		if( e.b && !IS_REG(e.b) ) {
-			if( !IS_REG(out) ) jit_assert();
-			ereg idx = out;
-			if( out == RTMP ) {
-				// the result is not in a register and its tmp already holds the base
-				idx = saved = R(RAX);
-				EMIT(_PUSH,saved,UNUSED,M_PTR);
-			}
-			emit_mov(ctx, idx, e.b, M_I32);
-			e.b = idx;
-		}
-	} else if( e.b && !IS_REG(e.b) ) {
-		// b is always an int index !
-		emit_mov(ctx, RTMP, e.b, M_I32);
-		e.b = RTMP;
 	}
 
 	if( mult == 0 ) {
@@ -1169,6 +1153,15 @@ static void emit_lea( code_ctx *ctx, ereg out, einstr *_e ) {
 		emit_ext(ctx,_LEA,out,MK_ADDR(e.a,offs),M_PTR,0);
 		return;
 	}
+
+	// b is always an int index, which can be negative : sign extend it.
+	// Its own register is restored after, the high bits of an i32 register are read as zero (CONV_UNSIGNED)
+	if( !IS_REG(out) ) jit_assert();
+	ereg idx = REG_REG(out) != REG_REG(e.a) ? out : IS_REG(e.b) ? e.b : e.a != RTMP ? RTMP : R(RAX);
+	ereg saved = idx == out || idx == RTMP ? UNUSED : idx;
+	if( saved ) EMIT(_PUSH,saved,UNUSED,M_PTR);
+	EMIT(MOVSXD,idx,e.b,M_PTR);
+	e.b = idx;
 
 	bool use_offs = offs != 0 || (e.a&7) == RBP;
 	REX64(out,e.a,e.b);
