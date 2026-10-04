@@ -28,7 +28,7 @@ The maintainer decides architecture and end-user behaviour, nothing else — ste
 - `bash .github/scripts/check-commit-kinds-test.sh` — self-test of the commit-kind check.
 - `bash .github/scripts/check-commit-kinds.sh origin/master..HEAD` — run it on your branch.
 - For code commits, build and smoke-test (dependencies and details in `.github/copilot-instructions.md`):
-  - `make` — builds `hl`, `libhl` and the libraries;
+  - `env=$(bash .github/scripts/setup-sdl3.sh) && eval "$env" && make` — builds `hl`, `libhl` and the libraries. The script is for machines without SDL3 dev files: it builds the SDL3 release the `Build` workflow uses into `~/.cache/hashlink/sdl3-<version>/` (no sudo, shared by all worktrees, a no-op once installed) and prints the `PKG_CONFIG_PATH`/`LD_LIBRARY_PATH` that point `make` at it. With a system SDL3, plain `make` is enough;
   - `haxe -hl hello.hl -cp other/tests -main HelloWorld -D interp && ./hl hello.hl` — bytecode path;
   - `haxe -hl src/_main.c -cp other/tests -main HelloWorld && make hlc && ./hlc` — HL/C path.
 - The full platform matrix is the upstream `Build` workflow (`.github/workflows/build.yml`); it runs on every push and PR.
