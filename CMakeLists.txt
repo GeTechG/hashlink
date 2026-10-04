@@ -335,6 +335,19 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # stacksymbol.hl
+
+    add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol.hl
+        COMMAND ${HAXE_COMPILER}
+            ${HAXE_HL_FLAGS}
+            -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol.hl
+            -cp ${CMAKE_SOURCE_DIR}/other/tests -main StackSymbol
+    )
+    add_custom_target(stacksymbol.hl ALL
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol.hl
+    )
+
+    #####################
     # reload.hl (hot reload : the other files are the same program built with other defines, see Reload.hx)
 
     set(RELOAD_v1 -D v1)
@@ -446,6 +459,29 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # stacksymbol.c
+
+    add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol/stacksymbol.c
+        COMMAND ${HAXE_COMPILER}
+            -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol/stacksymbol.c
+            -cp ${CMAKE_SOURCE_DIR}/other/tests -main StackSymbol
+    )
+    add_executable(stacksymbol
+        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol/stacksymbol.c
+    )
+    set_target_properties(stacksymbol
+        PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol
+    )
+    target_include_directories(stacksymbol
+        PRIVATE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol
+    )
+    target_link_libraries(stacksymbol
+        libhl
+        ${HLC_LIBRARIES}
+    )
+
+    #####################
     # uvsample.c
 
     add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/uvsample/uvsample.c
@@ -510,6 +546,9 @@ if(BUILD_TESTING)
         add_test(NAME i64tofloat.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/i64tofloat.hl
         )
+        add_test(NAME stacksymbol.hl
+            COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/stacksymbol.hl
+        )
         add_test(NAME reload.hl
             COMMAND hl --hot-reload ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl
                 ${RELOAD_PATCHES}
@@ -535,6 +574,9 @@ if(BUILD_TESTING)
     )
     add_test(NAME threads
         COMMAND threads
+    )
+    add_test(NAME stacksymbol
+        COMMAND stacksymbol
     )
     add_test(NAME uvsample
         COMMAND uvsample 6002

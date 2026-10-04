@@ -107,9 +107,9 @@ static uchar *hlc_resolve_symbol( void *addr, uchar *out, int *outSize ) {
 	array[0] = addr;
 	strings = backtrace_symbols(array, 1);
 	if (strings != NULL) {
-		*outSize = (int)strlen(strings[0]) << 1;
-		out = (uchar*)hl_gc_alloc_noptr(*outSize);
-		hl_from_utf8(out,*outSize,strings[0]);
+		int len = (int)strlen(strings[0]); // at least as many bytes as utf16 chars
+		out = (uchar*)hl_gc_alloc_noptr((len + 1) * sizeof(uchar));
+		*outSize = hl_from_utf8(out,len,strings[0]);
 		free(strings);
 		return out;
 	}

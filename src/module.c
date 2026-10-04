@@ -118,16 +118,18 @@ uchar *hl_module_resolve_symbol_full( void *addr, uchar *out, int *outSize, int 
 		*r_debug_addr = debug_addr;
 		if( file < 0 ) return NULL; // already cached
 	}
-	if( !out )
+	int size = out ? *outSize : 0;
+	if( size <= 0 )
 		return NULL;
-	int size = *outSize;
 	if( fdebug->obj )
 		pos += usprintf(out,size - pos,USTR("%s.%s("),fdebug->obj->name,fdebug->field.name);
 	else if( fdebug->field.ref )
 		pos += usprintf(out,size - pos,USTR("%s.~%s.%d("),fdebug->field.ref->obj->name, fdebug->field.ref->field.name, fdebug->ref);
 	else
 		pos += usprintf(out,size - pos,USTR("fun$%d("),fdebug->findex);
-	pos += hl_from_utf8(out + pos,size - pos,m->code->debugfiles[file&0x7FFFFFFF]);
+	// keep one char for the terminator, and don't trust the count returned for a cut surrogate pair
+	hl_from_utf8(out + pos,size - pos - 1,m->code->debugfiles[file&0x7FFFFFFF]);
+	pos += (int)ustrlen(out + pos);
 	pos += usprintf(out + pos, size - pos, USTR(":%d)"), line);
 	*outSize = pos;
 	return out;
