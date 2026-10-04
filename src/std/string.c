@@ -130,7 +130,8 @@ HL_PRIM int hl_from_utf8( uchar *out, int outLen, const char *str ) {
 			c3 = (unsigned)*str++;
 			c = (((c & 0x0F) << 18) | ((c2 & 0x7F) << 12) | ((c3 & 0x7F) << 6) | ((*str++) & 0x7F)) - 0x10000;
 			// surrogate pair
-			if( p++ == outLen ) break;
+			if( p == outLen ) break; // no room for the pair : nothing is written, nothing is counted
+			p++;
 			*out++ = (uchar)((c >> 10) + 0xD800);
 			*out++ = (uchar)((c & 0x3FF) | 0xDC00);
 			continue;

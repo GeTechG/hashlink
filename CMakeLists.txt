@@ -582,6 +582,20 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # from_utf8.c
+
+    add_executable(from_utf8
+        ${CMAKE_SOURCE_DIR}/other/tests/from_utf8.c
+    )
+    set_target_properties(from_utf8
+        PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/
+    )
+    target_link_libraries(from_utf8
+        libhl
+    )
+
+    #####################
     # Tests
     if (WITH_VM)
         add_test(NAME version
@@ -658,6 +672,9 @@ if(BUILD_TESTING)
     )
     add_test(NAME uvsample
         COMMAND uvsample 6002
+    )
+    add_test(NAME from_utf8
+        COMMAND from_utf8
     )
 endif()
 
