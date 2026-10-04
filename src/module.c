@@ -426,45 +426,52 @@ static void null_function() {
 	hl_error("Null function ptr");
 }
 
-static void append_fields( char **p, hl_type *t );
+static void append_fields( char **p, char *end, hl_type *t );
 
-static void append_type( char **p, hl_type *t ) {
+#define APPEND(c) if( *p < end ) *(*p)++ = c
+
+// a signature that does not fit is cut, which also stops the recursion on a type that contains itself
+static void append_type( char **p, char *end, hl_type *t ) {
+	if( *p >= end ) return;
 	*(*p)++ = TYPE_STR[t->kind];
 	switch( t->kind ) {
 	case HFUN:
 		{
 			int i;
 			for(i=0;i<t->fun->nargs;i++)
-				append_type(p,t->fun->args[i]);
-			*(*p)++ = '_';
-			append_type(p,t->fun->ret);
+				append_type(p,end,t->fun->args[i]);
+			APPEND('_');
+			append_type(p,end,t->fun->ret);
 			break;
 		}
 	case HREF:
 	case HNULL:
-		append_type(p,t->tparam);
+		append_type(p,end,t->tparam);
 		break;
 	case HOBJ:
 		{
-			append_fields(p, t);
-			*(*p)++ = '_';
+			append_fields(p, end, t);
+			APPEND('_');
 		}
 		break;
 	case HABSTRACT:
-		*p += utostr(*p,100,t->abs_name);
-		*(*p)++ = '_';
+		{
+			int max = (int)(end - *p);
+			*p += utostr(*p,max < 100 ? max : 100,t->abs_name);
+			APPEND('_');
+		}
 		break;
 	default:
 		break;
 	}
 }
 
-static void append_fields( char **p, hl_type *t ) {
+static void append_fields( char **p, char *end, hl_type *t ) {
 	int i;
 	if( t->obj->super )
-		append_fields(p, t->obj->super);
+		append_fields(p, end, t->obj->super);
 	for(i=0;i<t->obj->nfields;i++)
-		append_type(p,t->obj->fields[i].t);
+		append_type(p,end,t->obj->fields[i].t);
 }
 
 #define DISABLED_LIB_PTR ((void*)(int_val)2)
@@ -512,16 +519,13 @@ static void *resolve_library( hl_module *m, const char *lib, bool is_opt ) {
 #	endif
 	}
 
-	strcpy(tmp,lib);
-
 #	ifdef HL_64
-	strcpy(tmp+strlen(lib),"64.hdll");
-	h = open_library(m,tmp);
+	// a name that does not fit is not looked up cut
+	h = snprintf(tmp,sizeof(tmp),"%s64.hdll",lib) < (int)sizeof(tmp) ? open_library(m,tmp) : NULL;
 	if( h != NULL ) return h;
 #	endif
 
-	strcpy(tmp+strlen(lib),".hdll");
-	h = open_library(m,tmp);
+	h = snprintf(tmp,sizeof(tmp),"%s.hdll",lib) < (int)sizeof(tmp) ? open_library(m,tmp) : NULL;
 	if( h == NULL && !is_opt )
 		hl_fatal1("Failed to load library %s",tmp);
 	return h;
@@ -555,6 +559,7 @@ static void hl_module_init_indexes( hl_module *m ) {
 				for(j=0;j<t->obj->nproto;j++) {
 					hl_obj_proto *p = t->obj->proto + j;
 					hl_function *f = m->code->functions + m->functions_indexes[p->findex];
+					if( m->functions_indexes[p->findex] >= m->code->nfunctions ) continue; // native
 					f->obj = t->obj;
 					f->field.name = p->name;
 				}
@@ -567,6 +572,7 @@ static void hl_module_init_indexes( hl_module *m ) {
 					case HDYN:
 						{
 							hl_function *f = m->code->functions + m->functions_indexes[mid];
+							if( m->functions_indexes[mid] >= m->code->nfunctions ) break; // native
 							f->obj = t->obj;
 							f->field.name = of->name;
 						}
@@ -697,7 +703,7 @@ static void hl_module_init_natives( hl_module *m ) {
 		hl_native *n = m->code->natives + i;
 		const char *lib = n->lib;
 		bool is_opt = *lib == '?';
-		char *p = tmp;
+		char *p, *end = tmp + sizeof(tmp) - 1;
 		void *f;
 		if( is_opt ) lib++;
 		if( curlib != lib ) {
@@ -708,12 +714,7 @@ static void hl_module_init_natives( hl_module *m ) {
 			m->functions_ptrs[n->findex] = disabled_primitive;
 			continue;
 		}
-		strcpy(p,"hlp_");
-		p += 4;
-		strcpy(p,n->name);
-		p += strlen(n->name);
-		*p++ = 0;
-		f = dlsym(libHandler,tmp);
+		f = snprintf(tmp,sizeof(tmp),"hlp_%s",n->name) < (int)sizeof(tmp) ? dlsym(libHandler,tmp) : NULL;
 		if( f == NULL ) {
 			if( is_opt ) {
 				m->functions_ptrs[n->findex] = hl_prim_not_loaded;
@@ -723,15 +724,16 @@ static void hl_module_init_natives( hl_module *m ) {
 		}
 		m->functions_ptrs[n->findex] = ((void *(*)( const char **p ))f)(&sign);
 		p = tmp;
-		append_type(&p,n->t);
-		*p++ = 0;
+		append_type(&p,end,n->t);
+		*p = 0;
 		if( sign ) {
 			int slen = (int)strlen(sign);
 			if( slen && sign[slen-1] == *HL_CALLB ) {
 				hl_jit_tag_callback(m->functions_ptrs[n->findex]);
 				slen--;
 			}
-			if( slen != (int)strlen(tmp) || memcmp(sign,tmp,slen) != 0 )
+			// a signature that fills the buffer was cut
+			if( p == end || slen != (int)strlen(tmp) || memcmp(sign,tmp,slen) != 0 )
 				hl_fatal4("Invalid signature for function %s@%s : %s required but %s found in hdll",n->lib,n->name,tmp,sign);
 		}
 	}

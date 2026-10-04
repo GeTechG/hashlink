@@ -63,7 +63,7 @@ static void hl_read_bytes( hl_reader *r, void *data, int size ) {
 		ERROR("No more data");
 		return;
 	}
-	memcpy(data,r->b + r->pos, size);
+	if( size ) memcpy(data,r->b + r->pos, size);
 	r->pos += size;
 }
 
@@ -83,7 +83,7 @@ static int hl_read_i32( hl_reader *r ) {
 	b = r->b[r->pos++];
 	c = r->b[r->pos++];
 	d = r->b[r->pos++];
-	return a | (b<<8) | (c<<16) | (d<<24);
+	return (int)(a | (b<<8) | (c<<16) | ((unsigned int)d<<24));
 }
 
 static int hl_read_index( hl_reader *r ) {
@@ -110,6 +110,17 @@ static int hl_read_uindex( hl_reader *r ) {
 		return 0;
 	}
 	return i;
+}
+
+// a number of elements that take at least one byte each in the file : it can't be larger than what is left to read,
+// which also bounds the allocation made for them
+static int hl_read_count( hl_reader *r, int elt_size ) {
+	int n = hl_read_uindex(r);
+	if( n > r->size - r->pos || n > 0x40000000 / elt_size ) {
+		ERROR("Invalid count");
+		return 0;
+	}
+	return n;
 }
 
 static hl_type *hl_get_type( hl_reader *r ) {
@@ -145,7 +156,7 @@ static const uchar *hl_read_ustring( hl_reader *r ) {
 	int i = INDEX();
 	if( i < 0 || i >= r->code->nstrings ) {
 		ERROR("Invalid string index");
-		i = 0;
+		return USTR("");
 	}
 	return hl_get_ustring(r->code,i);
 }
@@ -173,9 +184,18 @@ static void hl_read_type( hl_reader *r, hl_type *t ) {
 			const uchar *name = hl_read_ustring(r);
 			int super = INDEX();
 			int global = UINDEX();
-			int nfields = UINDEX();
-			int nproto = UINDEX();
-			int nbindings = UINDEX();
+			int nfields = hl_read_count(r,sizeof(hl_obj_field));
+			int nproto = hl_read_count(r,sizeof(hl_obj_proto));
+			int nbindings = hl_read_count(r,sizeof(int)*2);
+			int nfuns = r->code->nfunctions + r->code->nnatives;
+			if( super >= r->code->ntypes ) {
+				ERROR("Invalid super type");
+				super = -1;
+			}
+			if( global > r->code->nglobals ) {
+				ERROR("Invalid type global");
+				global = 0;
+			}
 			t->obj = (hl_type_obj*)hl_malloc(&r->code->alloc,sizeof(hl_type_obj));
 			t->obj->name = name;
 			t->obj->super = super < 0 ? NULL : r->code->types + super;
@@ -200,17 +220,19 @@ static void hl_read_type( hl_reader *r, hl_type *t ) {
 				p->hashed_name = hl_hash_gen(p->name,true);
 				p->findex = UINDEX();
 				p->pindex = INDEX();
+				if( p->findex >= nfuns ) ERROR("Invalid proto function");
 			}
 			for(i=0;i<nbindings;i++) {
 				t->obj->bindings[i<<1] = UINDEX();
 				t->obj->bindings[(i<<1)|1] = UINDEX();
+				if( t->obj->bindings[(i<<1)|1] >= nfuns ) ERROR("Invalid binding function");
 			}
 		}
 		break;
 	case HVIRTUAL:
 		{
 			int i;
-			int nfields = UINDEX();
+			int nfields = hl_read_count(r,sizeof(hl_obj_field));
 			t->virt = (hl_type_virtual*)hl_malloc(&r->code->alloc,sizeof(hl_type_virtual));
 			t->virt->nfields = nfields;
 			t->virt->fields = (hl_obj_field*)hl_malloc(&r->code->alloc,sizeof(hl_obj_field)*nfields);
@@ -231,12 +253,16 @@ static void hl_read_type( hl_reader *r, hl_type *t ) {
 			t->tenum = hl_malloc(&r->code->alloc,sizeof(hl_type_enum));
 			t->tenum->name = hl_read_ustring(r);
 			t->tenum->global_value = (void**)(int_val)UINDEX();
-			t->tenum->nconstructs = UINDEX();
+			if( (int)(int_val)t->tenum->global_value > r->code->nglobals ) {
+				ERROR("Invalid type global");
+				t->tenum->global_value = NULL;
+			}
+			t->tenum->nconstructs = hl_read_count(r,sizeof(hl_enum_construct));
 			t->tenum->constructs = (hl_enum_construct*)hl_malloc(&r->code->alloc, sizeof(hl_enum_construct)*t->tenum->nconstructs);
 			for(i=0;i<t->tenum->nconstructs;i++) {
 				hl_enum_construct *c = t->tenum->constructs + i;
 				c->name = hl_read_ustring(r);
-				c->nparams = UINDEX();
+				c->nparams = hl_read_count(r,sizeof(hl_type*));
 				c->params = (hl_type**)hl_malloc(&r->code->alloc,sizeof(hl_type*)*c->nparams);
 				c->offsets = (int*)hl_malloc(&r->code->alloc,sizeof(int)*c->nparams);
 				for(j=0;j<c->nparams;j++)
@@ -253,6 +279,54 @@ static void hl_read_type( hl_reader *r, hl_type *t ) {
 		if( t->kind >= HLAST ) ERROR("Invalid type");
 		break;
 	}
+}
+
+// the indexes into the tables of the code, registers and jumps are left to the JIT
+static void hl_check_opcode( hl_reader *r, hl_opcode *o ) {
+	hl_code *c = r->code;
+	int idx = o->p2, max;
+	switch( o->op ) {
+	case OInt:
+		max = c->nints;
+		break;
+	case OFloat:
+		max = c->nfloats;
+		break;
+	case OBytes:
+		max = c->version >= 5 ? c->nbytes : c->nstrings;
+		break;
+	case OString:
+	case ODynSet:
+		max = c->nstrings;
+		break;
+	case ODynGet:
+		idx = o->p3;
+		max = c->nstrings;
+		break;
+	case OType:
+		max = c->ntypes;
+		break;
+	case OGetGlobal:
+		max = c->nglobals;
+		break;
+	case OSetGlobal:
+		idx = o->p1;
+		max = c->nglobals;
+		break;
+	case OCall0:
+	case OCall1:
+	case OCall2:
+	case OCall3:
+	case OCall4:
+	case OCallN:
+	case OStaticClosure:
+	case OInstanceClosure:
+		max = c->nfunctions + c->nnatives;
+		break;
+	default:
+		return;
+	}
+	if( idx < 0 || idx >= max ) ERROR("Invalid opcode index");
 }
 
 static void hl_read_opcode( hl_reader *r, hl_function *f, hl_opcode *o ) {
@@ -303,7 +377,7 @@ static void hl_read_opcode( hl_reader *r, hl_function *f, hl_opcode *o ) {
 			{
 				int i;
 				o->p1 = UINDEX();
-				o->p2 = UINDEX();
+				o->p2 = hl_read_count(r,sizeof(int));
 				o->extra = (int*)hl_malloc(&r->code->falloc,sizeof(int) * o->p2);
 				for(i=0;i<o->p2;i++)
 					o->extra[i] = UINDEX();
@@ -327,14 +401,15 @@ static void hl_read_opcode( hl_reader *r, hl_function *f, hl_opcode *o ) {
 		}
 		break;
 	}
+	hl_check_opcode(r,o);
 }
 
 static void hl_read_function( hl_reader *r, hl_function *f ) {
 	int i;
 	f->type = hl_get_type(r);
 	f->findex = UINDEX();
-	f->nregs = UINDEX();
-	f->nops = UINDEX();
+	f->nregs = hl_read_count(r,sizeof(hl_type*));
+	f->nops = hl_read_count(r,sizeof(hl_opcode));
 	f->regs = (hl_type**)hl_malloc(&r->code->falloc, f->nregs * sizeof(hl_type*));
 	for(i=0;i<f->nregs;i++)
 		f->regs[i] = hl_get_type(r);
@@ -358,11 +433,15 @@ const char *hl_op_name( int op ) {
 static char **hl_read_strings( hl_reader *r, int nstrings, int **out_lens ) {
 	int size = hl_read_i32(r);
 	hl_code *c = r->code;
-	char *sbase = (char*)hl_malloc(&c->alloc,sizeof(char) * size);
-	char *sdata = sbase;
+	char *sbase, *sdata;
 	char **strings;
 	int *lens;
 	int i;
+	if( size < 0 || size > r->size - r->pos ) {
+		ERROR("Invalid strings size");
+		return NULL;
+	}
+	sdata = sbase = (char*)hl_malloc(&c->alloc,sizeof(char) * size);
 	hl_read_bytes(r, sdata, size);
 	ALLOC(strings, char*, nstrings);
 	ALLOC(lens, int, nstrings);
@@ -370,12 +449,11 @@ static char **hl_read_strings( hl_reader *r, int nstrings, int **out_lens ) {
 		int sz = UINDEX();
 		strings[i] = sdata;
 		lens[i] = sz;
-		sdata += sz;
-		if( sdata >= sbase + size || *sdata ) {
+		if( sz >= size - (int)(sdata - sbase) || sdata[sz] ) {
 			ERROR("Invalid string");
 			return NULL;
 		}
-		sdata++;
+		sdata += sz + 1;
 	}
 	*out_lens = lens;
 	return strings;
@@ -386,7 +464,7 @@ static int *hl_read_debug_infos( hl_reader *r, int nops ) {
 	hl_code *code = r->code;
 	int *debug = (int*)hl_malloc(&code->alloc, sizeof(int) * nops * 2);
 	int i = 0;
-	while( i < nops ) {
+	while( i < nops && !r->error ) {
 		int c = READ();
 		if( c & 1 ) {
 			c >>= 1;
@@ -396,8 +474,11 @@ static int *hl_read_debug_infos( hl_reader *r, int nops ) {
 		} else if( c & 2 ) {
 			int delta = c >> 6;
 			int count = (c >> 2) & 15;
-			if( i + count > nops )
+			if( i + count > nops ) {
 				ERROR("Outside range");
+				break;
+			}
+			if( count && curfile < 0 ) ERROR("Missing debug file");
 			while( count-- ) {
 				debug[i<<1] = curfile;
 				debug[(i<<1)|1] = curline;
@@ -406,6 +487,7 @@ static int *hl_read_debug_infos( hl_reader *r, int nops ) {
 			curline += delta;
 		} else if( c & 4 ) {
 			curline += c >> 3;
+			if( curfile < 0 ) ERROR("Missing debug file");
 			debug[i<<1] = curfile;
 			debug[(i<<1)|1] = curline;
 			i++;
@@ -413,12 +495,94 @@ static int *hl_read_debug_infos( hl_reader *r, int nops ) {
 			unsigned char b2 = READ();
 			unsigned char b3 = READ();
 			curline = (c >> 3) | (b2 << 5) | (b3 << 13);
+			if( curfile < 0 ) ERROR("Missing debug file");
 			debug[i<<1] = curfile;
 			debug[(i<<1)|1] = curline;
 			i++;
 		}
 	}
 	return debug;
+}
+
+static void hl_check_objs( hl_reader *r ) {
+	hl_code *c = r->code;
+	int i, j;
+	for(i=0;i<c->ntypes;i++) {
+		hl_type *t = c->types + i, *s;
+		int depth = 0, nfields = 0;
+		if( t->kind != HOBJ && t->kind != HSTRUCT ) continue;
+		for(s=t;s;s=s->obj->super) {
+			// a chain longer than the types is a loop
+			if( (s->kind != HOBJ && s->kind != HSTRUCT) || depth++ >= c->ntypes ) {
+				ERROR("Invalid super type");
+				return;
+			}
+			nfields += s->obj->nfields;
+		}
+		for(j=0;j<t->obj->nbindings;j++)
+			if( t->obj->bindings[j<<1] >= nfields ) {
+				ERROR("Invalid binding field");
+				return;
+			}
+	}
+}
+
+// each function index is used exactly once, by a function or by a native
+static void hl_check_findexes( hl_reader *r ) {
+	hl_code *c = r->code;
+	int i, total = c->nfunctions + c->nnatives;
+	char *used = (char*)hl_zalloc(&c->falloc,total);
+	for(i=0;i<total;i++) {
+		bool is_fun = i < c->nfunctions;
+		int fid = is_fun ? c->functions[i].findex : c->natives[i - c->nfunctions].findex;
+		if( fid >= total || used[fid] ) {
+			ERROR("Invalid function index");
+			return;
+		}
+		used[fid] = is_fun ? 1 : 2;
+	}
+	if( c->entrypoint >= total || used[c->entrypoint] != 1 )
+		ERROR("Invalid entry point");
+}
+
+static void hl_read_constant( hl_reader *r, hl_constant *k ) {
+	hl_code *c = r->code;
+	hl_type *t;
+	int j;
+	k->global = UINDEX();
+	k->nfields = hl_read_count(r,sizeof(int));
+	k->fields = (int*)hl_zalloc(&c->alloc,k->nfields*sizeof(int));
+	for(j=0;j<k->nfields;j++)
+		k->fields[j] = UINDEX();
+	if( r->error ) return;
+	t = k->global < c->nglobals ? c->globals[k->global] : NULL;
+	if( t == NULL || (t->kind != HOBJ && t->kind != HSTRUCT) || k->nfields > t->obj->nfields ) {
+		ERROR("Invalid constant");
+		return;
+	}
+	for(j=0;j<k->nfields;j++) {
+		int max;
+		switch( t->obj->fields[j].t->kind ) {
+		case HI32:
+			max = c->nints;
+			break;
+		case HBOOL:
+			continue;
+		case HF64:
+			max = c->nfloats;
+			break;
+		case HBYTES:
+			max = c->nstrings;
+			break;
+		case HTYPE:
+			max = c->ntypes;
+			break;
+		default:
+			max = c->nglobals;
+			break;
+		}
+		if( k->fields[j] >= max ) ERROR("Invalid constant field");
+	}
 }
 
 hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
@@ -442,16 +606,16 @@ hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
 		EXIT("Unsupported bytecode version");
 	}
 	flags = UINDEX();
-	c->nints = UINDEX();
-	c->nfloats = UINDEX();
-	c->nstrings = UINDEX();
+	c->nints = hl_read_count(r,sizeof(int));
+	c->nfloats = hl_read_count(r,sizeof(double));
+	c->nstrings = hl_read_count(r,sizeof(char*));
 	if( c->version >= 5 )
-		c->nbytes = UINDEX();
-	c->ntypes = UINDEX();
-	c->nglobals = UINDEX();
-	c->nnatives = UINDEX();
-	c->nfunctions = UINDEX();
-	c->nconstants = c->version >= 4 ? UINDEX() : 0;
+		c->nbytes = hl_read_count(r,sizeof(int));
+	c->ntypes = hl_read_count(r,sizeof(hl_type));
+	c->nglobals = hl_read_count(r,sizeof(hl_type*));
+	c->nnatives = hl_read_count(r,sizeof(hl_native));
+	c->nfunctions = hl_read_count(r,sizeof(hl_function));
+	c->nconstants = c->version >= 4 ? hl_read_count(r,sizeof(hl_constant)) : 0;
 	c->entrypoint = UINDEX();
 	c->hasdebug = flags & 1;
 	CHK_ERROR();
@@ -468,16 +632,20 @@ hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
 	CHK_ERROR();
 	if( c->version >= 5 ) {
 		int size = hl_read_i32(r);
+		if( size < 0 || size > r->size - r->pos )
+			EXIT("Invalid bytes size");
 		c->bytes = hl_malloc(&c->alloc,size);
 		hl_read_bytes(r,c->bytes,size);
 		ALLOC(c->bytes_pos,int,c->nbytes);
 		CHK_ERROR();
-		for(i=0;i<c->nbytes;i++)
+		for(i=0;i<c->nbytes;i++) {
 			c->bytes_pos[i] = UINDEX();
+			if( c->bytes_pos[i] > size ) ERROR("Invalid bytes position");
+		}
 		CHK_ERROR();
 	}
 	if( c->hasdebug ) {
-		c->ndebugfiles = UINDEX();
+		c->ndebugfiles = hl_read_count(r,sizeof(char*));
 		c->debugfiles = hl_read_strings(r, c->ndebugfiles, &c->debugfiles_lens);
 		CHK_ERROR();
 	}
@@ -486,6 +654,8 @@ hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
 		hl_read_type(r, c->types + i);
 		CHK_ERROR();
 	}
+	hl_check_objs(r);
+	CHK_ERROR();
 	ALLOC(c->globals, hl_type*, c->nglobals);
 	for(i=0;i<c->nglobals;i++)
 		c->globals[i] = hl_get_type(r);
@@ -505,6 +675,7 @@ hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
 		CHK_ERROR();
 		if( c->hasdebug ) {
 			c->functions[i].debug = hl_read_debug_infos(r,c->functions[i].nops);
+			CHK_ERROR();
 			if( c->version >= 3 ) {
 				int nassigns = UINDEX();
 				int *assigns;
@@ -524,15 +695,11 @@ hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
 		}
 	}
 	CHK_ERROR();
+	hl_check_findexes(r);
+	CHK_ERROR();
 	ALLOC(c->constants, hl_constant, c->nconstants);
 	for (i = 0; i < c->nconstants; i++) {
-		int j;
-		hl_constant *k = c->constants + i;
-		k->global = UINDEX();
-		k->nfields = UINDEX();
-		ALLOC(k->fields, int, k->nfields);
-		for (j = 0; j < k->nfields; j++)
-			k->fields[j] = UINDEX();
+		hl_read_constant(r, c->constants + i);
 		CHK_ERROR();
 	}
 	return c;
