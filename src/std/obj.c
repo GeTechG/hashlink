@@ -71,6 +71,19 @@ static hl_field_lookup *obj_resolve_field( hl_type_obj *o, int hfield ) {
 	return NULL;
 }
 
+// orders the fill of a lazily built table before the store that publishes it to lock-free readers
+#ifndef HL_THREADS
+#	define OBJ_PUBLISH_BARRIER()
+#elif defined(HL_VCC)
+#	if defined(_M_ARM) || defined(_M_ARM64)
+#		define OBJ_PUBLISH_BARRIER()	MemoryBarrier()
+#	else
+#		define OBJ_PUBLISH_BARRIER()	_ReadWriteBarrier()
+#	endif
+#else
+#	define OBJ_PUBLISH_BARRIER()	__atomic_thread_fence(__ATOMIC_RELEASE)
+#endif
+
 static int hl_cache_count = 0;
 static int hl_cache_size = 0;
 static hl_mutex *hl_cache_lock = NULL;
@@ -133,8 +146,14 @@ HL_PRIM int hl_hash_gen( const uchar *name, bool cache_name ) {
 }
 
 HL_PRIM vbyte *hl_field_name( int hash ) {
-	hl_field_lookup *l = hl_lookup_find(hl_cache, hl_cache_count, hash);
-	return l ? (vbyte*)l->t : (vbyte*)USTR("???");
+	hl_field_lookup *l;
+	vbyte *name;
+	// hl_hash_gen reallocates the cache : the names themselves are never freed
+	hl_mutex_acquire(hl_cache_lock);
+	l = hl_lookup_find(hl_cache, hl_cache_count, hash);
+	name = l ? (vbyte*)l->t : (vbyte*)USTR("???");
+	hl_mutex_release(hl_cache_lock);
+	return name;
 }
 
 HL_PRIM void hl_cache_free() {
@@ -280,7 +299,6 @@ HL_PRIM hl_runtime_obj *hl_get_obj_rt( hl_type *ot ) {
 	t->largest_field = largest_field;
 	t->nmethods = p ? p->nmethods : o->nproto;
 	t->methods = NULL;
-	o->rt = t;
 	ot->vobj_proto = NULL;
 
 	// fields lookup
@@ -306,7 +324,6 @@ HL_PRIM hl_runtime_obj *hl_get_obj_rt( hl_type *ot ) {
 	// mark bits
 	if( t->hasPtr ) {
 		unsigned int *mark = (unsigned int*)hl_zalloc(alloc,hl_mark_size(t->size));
-		ot->mark_bits = mark;
 		if( p && p->t->mark_bits ) memcpy(mark, p->t->mark_bits, hl_mark_size(p->size));
 		for(i=0;i<o->nfields;i++) {
 			hl_type *ft = o->fields[i].t;
@@ -328,7 +345,12 @@ HL_PRIM hl_runtime_obj *hl_get_obj_rt( hl_type *ot ) {
 				mark[pos >> 5] |= 1 << (pos & 31);
 			}
 		}
+		ot->mark_bits = mark;
 	}
+
+	// publish last : o->rt is read without the lock
+	OBJ_PUBLISH_BARRIER();
+	o->rt = t;
 
 	hl_global_lock(false);
 	return t;
@@ -346,19 +368,19 @@ HL_API hl_runtime_obj *hl_get_obj_proto( hl_type *ot ) {
 	hl_field_lookup *strField, *cmpField, *castField, *getField;
 	int i;
 	int nmethods, nbindings;
-	if( ot->vobj_proto ) return t;
+	void **fptr, **methods;
+	if( ot->vobj_proto && t->methods ) return t;
 	if( o->super ) p = hl_get_obj_proto(o->super);
 
 	hl_global_lock(true);
 
-	if( ot->vobj_proto ) {
+	if( ot->vobj_proto && t->methods ) {
 		hl_global_lock(false);
 		return t;
 	}
 
 	if( t->nproto ) {
-		void **fptr = (void**)hl_malloc(alloc, sizeof(void*) * t->nproto);
-		ot->vobj_proto = fptr;
+		fptr = (void**)hl_malloc(alloc, sizeof(void*) * t->nproto);
 		if( p )
 			memcpy(fptr, p->t->vobj_proto, p->nproto * sizeof(void*));
 		for(i=0;i<o->nproto;i++) {
@@ -366,10 +388,11 @@ HL_API hl_runtime_obj *hl_get_obj_proto( hl_type *ot ) {
 			if( p->pindex >= 0 ) fptr[p->pindex] = m->functions_ptrs[p->findex];
 		}
 	} else
-		ot->vobj_proto = (void*)1;
+		fptr = (void**)1;
 
-	t->methods = (void**)hl_malloc(alloc, sizeof(void*) * t->nmethods);
-	if( p ) memcpy(t->methods,p->methods,p->nmethods * sizeof(void*));
+	// never NULL, even without methods : it is what tells the proto is ready
+	methods = (void**)hl_malloc(alloc, sizeof(void*) * (t->nmethods ? t->nmethods : 1));
+	if( p ) memcpy(methods,p->methods,p->nmethods * sizeof(void*));
 
 	nmethods = p ? p->nmethods : 0;
 	for(i=0;i<o->nproto;i++) {
@@ -382,7 +405,7 @@ HL_API hl_runtime_obj *hl_get_obj_proto( hl_type *ot ) {
 				method_index = nmethods++;
 		} else
 			method_index = i;
-		t->methods[method_index] = m->functions_ptrs[pr->findex];
+		methods[method_index] = m->functions_ptrs[pr->findex];
 	}
 
 	// interfaces
@@ -449,11 +472,16 @@ HL_API hl_runtime_obj *hl_get_obj_proto( hl_type *ot ) {
 	cmpField = obj_resolve_field(o,hl_hash_gen(USTR("__compare"),false));
 	castField = obj_resolve_field(o,hl_hash_gen(USTR("__cast"),false));
 	getField = obj_resolve_field(o,hl_hash_gen(USTR("__get_field"),false));
-	t->toStringFun = strField ? t->methods[-(strField->field_index+1)] : NULL;
-	t->compareFun = cmpField && t->compareFun ? t->methods[-(cmpField->field_index+1)] : NULL;
-	t->castFun = castField ? t->methods[-(castField->field_index+1)] : NULL;
-	t->getFieldFun = getField ? t->methods[-(getField->field_index+1)] : NULL;
+	t->toStringFun = strField ? methods[-(strField->field_index+1)] : NULL;
+	t->compareFun = cmpField && t->compareFun ? methods[-(cmpField->field_index+1)] : NULL;
+	t->castFun = castField ? methods[-(castField->field_index+1)] : NULL;
+	t->getFieldFun = getField ? methods[-(getField->field_index+1)] : NULL;
 	if( p && !t->getFieldFun ) t->getFieldFun = p->getFieldFun;
+
+	// publish last : both are read without the lock, t->methods is what hl_alloc_obj waits for
+	OBJ_PUBLISH_BARRIER();
+	ot->vobj_proto = fptr;
+	t->methods = methods;
 
 	hl_global_lock(false);
 
