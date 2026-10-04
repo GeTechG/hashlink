@@ -387,6 +387,19 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # surrogate.hl
+
+    add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/surrogate.hl
+        COMMAND ${HAXE_COMPILER}
+            ${HAXE_HL_FLAGS}
+            -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/surrogate.hl
+            -cp ${CMAKE_SOURCE_DIR}/other/tests -main Surrogate
+    )
+    add_custom_target(surrogate.hl ALL
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/surrogate.hl
+    )
+
+    #####################
     # reload.hl (hot reload : the other files are the same program built with other defines, see Reload.hx)
 
     set(RELOAD_v1 -D v1)
@@ -605,6 +618,9 @@ if(BUILD_TESTING)
         )
         add_test(NAME dyncall.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/dyncall.hl
+        )
+        add_test(NAME surrogate.hl
+            COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/surrogate.hl
         )
         add_test(NAME reload.hl
             COMMAND hl --hot-reload ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl

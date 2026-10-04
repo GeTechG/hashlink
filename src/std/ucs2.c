@@ -51,7 +51,7 @@ static int ustrlen_utf8( const uchar *str ) {
 			size++;
 		else if( c < 0x800 )
 			size += 2;
-		else if( c >= 0xD800 && c <= 0xDFFF ) {
+		else if( c >= 0xD800 && c <= 0xDBFF && *str >= 0xDC00 && *str <= 0xDFFF ) {
 			str++;
 			size += 4;
 		} else
@@ -139,7 +139,7 @@ int utostr( char *out, int out_size, const uchar *str ) {
 			if( out + 2 > end ) break;
 			*out++ = (char)(0xC0|(c>>6));
 			*out++ = 0x80|(c&63);
-		} else if( c >= 0xD800 && c <= 0xDFFF ) { // surrogate pair
+		} else if( c >= 0xD800 && c <= 0xDBFF && *str >= 0xDC00 && *str <= 0xDFFF ) { // surrogate pair, a lone one is a single unit
 			if( out + 4 > end ) break;
 			unsigned int full = (((c - 0xD800) << 10) | ((*str++) - 0xDC00)) + 0x10000;
 			*out++ = (char)(0xF0|(full>>18));
