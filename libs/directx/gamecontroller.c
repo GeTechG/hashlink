@@ -200,6 +200,7 @@ static BOOL CALLBACK gctrl_dinput_deviceCb(const DIDEVICEINSTANCE *instance, voi
 
 	result = IDirectInputDevice8_SetDataFormat(device->dDevice, &c_dfDIJoystick2);
 	if( FAILED(result) ) {
+		IDirectInputDevice8_Release(device->dDevice);
 		free(device);
 		return DIENUM_CONTINUE;
 	}

@@ -17,8 +17,22 @@ struct _wref {
 	int height;
 };
 
+// the wref is not scanned by the GC : its closure is kept alive by a root
+static void free_callb( wref *w ) {
+	if( !w->callb ) return;
+	hl_remove_root(&w->callb);
+	w->callb = NULL;
+}
+
 static void finalize_wref( wref *w ) {
+	free_callb(w);
 	SetProp(w->h,PREF,NULL);
+}
+
+static BOOL CALLBACK free_child_callb( HWND h, LPARAM lparam ) {
+	wref *r = (wref*)GetProp(h,PREF);
+	if( r ) free_callb(r);
+	return TRUE;
 }
 
 static wref *alloc_ref( HWND h ) {
@@ -37,7 +51,14 @@ static LRESULT CALLBACK WindowProc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 	case WM_COMMAND:
 		if( wparam == BN_CLICKED ) {
 			wref *r = (wref*)GetProp((HWND)lparam,PREF);
-			if( r && r->callb ) hl_dyn_call(r->callb,NULL,0);
+			if( r && r->callb ) {
+				// we might be called from a message loop that runs in blocking mode
+				hl_thread_info *t = hl_get_thread();
+				int i, blocking = t ? t->gc_blocking : 0;
+				for(i=0;i<blocking;i++) hl_blocking(false);
+				hl_dyn_call(r->callb,NULL,0);
+				for(i=0;i<blocking;i++) hl_blocking(true);
+			}
 		}
 		break;
 	}
@@ -139,6 +160,7 @@ HL_PRIM wref *HL_NAME(ui_button_new)( wref *w, const uchar *txt, vclosure *callb
 	wref *ref = alloc_ref(but);
 	w->width -= 80;
 	ref->callb = callb;
+	hl_add_root(&ref->callb);
 	SendMessage(but,WM_SETFONT,(WPARAM)font,TRUE);
 	SetWindowText(but,txt);
 	return ref;
@@ -174,14 +196,19 @@ HL_PRIM void HL_NAME(ui_win_set_enable)( wref *w, bool enable ) {
 }
 
 HL_PRIM void HL_NAME(ui_win_destroy)( wref *w ) {
+	// the closures usually reference the window : release them or they would never be collected
+	EnumChildWindows(w->h,free_child_callb,0);
+	free_callb(w);
 	DestroyWindow(w->h);
 }
 
 HL_PRIM int HL_NAME(ui_loop)( bool blocking ) {
 	MSG msg;
-	if( blocking )
+	if( blocking ) {
+		hl_blocking(true);
 		GetMessage(&msg,NULL,0,0);
-	else if( !PeekMessage(&msg,NULL,0,0,PM_REMOVE) )
+		hl_blocking(false);
+	} else if( !PeekMessage(&msg,NULL,0,0,PM_REMOVE) )
 		return 0;
 	TranslateMessage(&msg);
 	DispatchMessage(&msg);
@@ -293,6 +320,7 @@ HL_PRIM vbyte *HL_NAME(ui_choose_file)( bool forSave, vdynamic *options ) {
 	OPENFILENAME op;
 	wchar_t filterStr[1024];
 	wchar_t outputFile[1024] = {0};
+	bool ok;
 	ZeroMemory(&op, sizeof(op));
 	op.lStructSize = sizeof(op);
 	op.hwndOwner = win ? win->h : NULL;
@@ -301,7 +329,7 @@ HL_PRIM vbyte *HL_NAME(ui_choose_file)( bool forSave, vdynamic *options ) {
 		for(i=0;i<filters->size;i++) {
 			wchar_t *str = hl_aptr(filters,wchar_t*)[i];
 			int len = (int)wcslen(str);
-			if( pos + len > 1024 ) return false;
+			if( pos + len + 2 > 1024 ) return NULL; // keep room for the final double 0
 			memcpy(filterStr + pos, str, (len + 1) << 1);
 			pos += len + 1;
 		}
@@ -309,27 +337,27 @@ HL_PRIM vbyte *HL_NAME(ui_choose_file)( bool forSave, vdynamic *options ) {
 		op.lpstrFilter = filterStr;
 		op.nFilterIndex = hl_dyn_geti(options,hl_hash_utf8("filterIndex"),&hlt_i32) + 1; // 1 based
 	}
-	if( fileName )
+	if( fileName ) {
+		if( wcslen(fileName) >= 1024 ) return NULL;
 		memcpy(outputFile, fileName, (wcslen(fileName)+1) * 2 );
+	}
 	op.lpstrFile = outputFile;
 	op.nMaxFile = 1024;
 	op.lpstrInitialDir = hl_dyn_getp(options,hl_hash_utf8("directory"),&hlt_bytes);
 	op.lpstrTitle = hl_dyn_getp(options,hl_hash_utf8("title"),&hlt_bytes);
 	op.Flags |= OFN_NOCHANGEDIR;
+	hl_blocking(true);
 	if( forSave ) {
 		op.Flags |= OFN_OVERWRITEPROMPT;
-		if( !GetSaveFileName(&op) )
-			return NULL;
-	} else {
-		if (!isFolder) {
-			op.Flags |= OFN_CREATEPROMPT;
-			if( !GetOpenFileName(&op) )
-				return NULL;
-		} else {
-			if (!chooseFolder(op.lpstrTitle, op.lpstrInitialDir, outputFile))
-				return NULL;
-		}
-	}
+		ok = GetSaveFileName(&op);
+	} else if( !isFolder ) {
+		op.Flags |= OFN_CREATEPROMPT;
+		ok = GetOpenFileName(&op);
+	} else
+		ok = chooseFolder(op.lpstrTitle, op.lpstrInitialDir, outputFile);
+	hl_blocking(false);
+	if( !ok )
+		return NULL;
 	return hl_copy_bytes((vbyte*)outputFile, (int)(wcslen(outputFile)+1)*2);
 }
 
