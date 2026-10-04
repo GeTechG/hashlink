@@ -810,13 +810,17 @@ static int max_op_size( einstr *e ) {
 	return size;
 }
 
+// size of the code written by hl_jit_patch_method
+#define PATCH_METHOD_SIZE	(HL_WSIZE + 3 + IS_64)
+
 static bool can_jump_short( code_ctx *ctx, int offset ) {
 	int target = ctx->cur_op + offset + 1;
 	if( target <= ctx->cur_op ) {
 		int pos = byte_count(ctx->code) + 1; // the offset byte follows the opcode
 		return IS_SBYTE(ctx->pos_map[target] - (pos + 1));
 	}
-	int size = 0;
+	// a patch padding might be inserted before the target
+	int size = byte_count(ctx->code) < PATCH_METHOD_SIZE ? PATCH_METHOD_SIZE : 0;
 	for(int i=ctx->cur_op+1;i<target;i++) {
 		size += max_op_size(ctx->jit->reg_instrs + i);
 		if( !IS_SBYTE(size) ) return false;
@@ -1309,6 +1313,24 @@ void hl_codegen_function( jit_ctx *jit ) {
 	int const_addr_prev = int_arr_count(ctx->const_addr);
 	byte_reserve(ctx->code,64);
 	ctx->code.cur -= 64;
+	// the first instr a frame can come back to : after a call or with a backward jump
+	// it must not be within the bytes overwritten by hl_jit_patch_method (hot reload),
+	// the function might be on the stack by then
+	int patch_pad = jit->reg_instr_count;
+	for(int i=1;i<jit->reg_instr_count;i++) {
+		einstr *e = jit->reg_instrs + i;
+		int target = patch_pad;
+		if( IS_CALL(e->op) )
+			target = i;
+		else if( e->op == JUMP || e->op == JCOND )
+			target = i + e->size_offs + 1;
+		else if( e->op == JUMP_TABLE ) {
+			ereg *args = hl_emit_get_args(jit->emit,e);
+			for(int k=0;k<e->nargs;k++)
+				if( i + (int)args[k] + 1 < target ) target = i + (int)args[k] + 1;
+		}
+		if( target < patch_pad ) patch_pad = target;
+	}
 #	ifdef GEN_DEBUG
 	int reg_index = 0;
 	int emit_index = 0;
@@ -1316,6 +1338,9 @@ void hl_codegen_function( jit_ctx *jit ) {
 	for(int cur_pos=0;cur_pos<jit->reg_instr_count;cur_pos++) {
 		einstr *e = jit->reg_instrs + cur_pos;
 		ereg out = jit->reg_writes[cur_pos];
+		if( cur_pos == patch_pad )
+			while( byte_count(ctx->code) < PATCH_METHOD_SIZE )
+				emit_nop(ctx,PATCH_METHOD_SIZE - byte_count(ctx->code));
 		byte_reserve(ctx->code,64);
 		ctx->code.cur -= 64;
 		ctx->cur_op = cur_pos;
@@ -2070,6 +2095,7 @@ void hl_jit_patch_method( void *old_fun, void **new_fun_table ) {
 	// jmp [eax]
 	// functions are aligned on 16 bytes, so this always fits : rax is neither
 	// an argument register nor preserved in any of our calling conventions
+	// a frame of old_fun on the stack never comes back within these bytes (see patch_pad)
 	unsigned char *b = (unsigned char*)old_fun;
 #	ifdef HL_64
 	*b++ = 0x48;
