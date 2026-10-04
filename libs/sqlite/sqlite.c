@@ -126,7 +126,6 @@ HL_PRIM sqlite_result *HL_NAME(request)(sqlite_database *db, vbyte *sql ) {
 		hl_error("SQLite error: Cannot execute several SQL requests at the same time");
 	}
 
-	r->db = db;
 	r->ncols = sqlite3_column_count(r->r);
 	r->names = (int*)malloc(sizeof(int)*r->ncols);
 	r->bools = (int*)malloc(sizeof(int)*r->ncols);
@@ -137,27 +136,29 @@ HL_PRIM sqlite_result *HL_NAME(request)(sqlite_database *db, vbyte *sql ) {
 		const char *dtype = sqlite3_column_decltype(r->r,i);
 		for(j=0;j<i;j++)
 			if( r->names[j] == id ) {
-				if( strcmp(sqlite3_column_name16(r->r,i), sqlite3_column_name16(r->r,j)) == 0 ) {
-					sqlite3_finalize(r->r);
-					hl_buffer *b = hl_alloc_buffer();
+				hl_buffer *b = hl_alloc_buffer();
+				if( ucmp((uchar*)sqlite3_column_name16(r->r,i), (uchar*)sqlite3_column_name16(r->r,j)) == 0 ) {
 					hl_buffer_str(b, USTR("SQLite error: Same field is two times in the request: "));
 					hl_buffer_str(b, (uchar*)sql);
-
-					hl_error("%s",hl_buffer_content(b, NULL));
 				} else {
-					hl_buffer *b = hl_alloc_buffer();
 					hl_buffer_str(b, USTR("SQLite error: Same field ids for: "));
 					hl_buffer_str(b, sqlite3_column_name16(r->r,i));
 					hl_buffer_str(b, USTR(" and "));
 					hl_buffer_str(b, sqlite3_column_name16(r->r,j));
-
-					sqlite3_finalize(r->r);
-					hl_error("%s",hl_buffer_content(b, NULL));
 				}
+				// r->db is not set yet : the finalizer will not touch the statement again
+				sqlite3_finalize(r->r);
+				r->r = NULL;
+				free(r->names);
+				free(r->bools);
+				r->names = NULL;
+				r->bools = NULL;
+				hl_error("%s",hl_buffer_content(b, NULL));
 			}
 		r->names[i] = id;
 		r->bools[i] = dtype?(strcmp(dtype,"BOOL") == 0):0;
 	}
+	r->db = db;
 	// changes in an update/delete
 	if( db->last != NULL )
 		HL_NAME(finalize_request)(db->last, false);
@@ -191,9 +192,15 @@ HL_PRIM int HL_NAME(result_get_nfields)( sqlite_result *r ) {
 HL_PRIM varray *HL_NAME(result_get_fields)( sqlite_result *r ) {
 	varray *a = hl_alloc_array(&hlt_bytes, r->ncols);
 	int i;
+	if( r->r == NULL )
+		hl_error("SQLite error: Result is closed");
 	for (i = 0; i < r->ncols; i++)
 	{
-		hl_aptr(a, vbyte*)[i] = (vbyte *)sqlite3_column_name16(r->r, i);
+		// the names are owned by the statement : copy them
+		uchar *name = (uchar *)sqlite3_column_name16(r->r, i);
+		if( name == NULL )
+			hl_error("SQLite error: Out of memory");
+		hl_aptr(a, vbyte*)[i] = hl_copy_bytes((vbyte *)name, (int)(ustrlen(name) + 1) * sizeof(uchar));
 	}
 
 	return a;
@@ -245,7 +252,7 @@ HL_PRIM varray *HL_NAME(result_next)( sqlite_result *r ) {
 			{
 				int size = sqlite3_column_bytes(r->r, i);
 				vbyte *blob = (vbyte *)sqlite3_column_blob(r->r, i);
-				vbyte *vb = hl_copy_bytes(blob, size+1);
+				vbyte *vb = size ? hl_copy_bytes(blob, size) : NULL; // the blob pointer is NULL when empty
 
 				varray *bytes_data = hl_alloc_array(&hlt_dyn, 2);
 				hl_aptr(bytes_data, vdynamic*)[0] = hl_make_dyn(&vb, &hlt_bytes);
@@ -265,10 +272,9 @@ HL_PRIM varray *HL_NAME(result_next)( sqlite_result *r ) {
 		return NULL;
 	case SQLITE_BUSY:
 		hl_error("SQLite error: Database is busy");
-	case SQLITE_ERROR:
-		HL_NAME(error)(r->db->db, false);
 	default:
-		return NULL;
+		// extended result codes (SQLITE_CONSTRAINT...) are errors as well
+		HL_NAME(error)(r->db->db, false);
 	}
 	return NULL;
 }
