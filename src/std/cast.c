@@ -589,7 +589,7 @@ HL_PRIM vdynamic *hl_dyn_op( int op, vdynamic *a, vdynamic *b ) {
 		case OP_XOR: IOP(^);
 		}
 	}
-	hl_error("Can't perform dyn op %s %s %s",hl_type_str(a->t),op_names[op],hl_type_str(b->t));
+	hl_error("Can't perform dyn op %s %s %s",hl_type_str(a?a->t:&hlt_dyn),op_names[op],hl_type_str(b?b->t:&hlt_dyn));
 	return NULL;
 }
 
