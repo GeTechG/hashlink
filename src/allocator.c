@@ -644,6 +644,16 @@ static void gc_iter_pages( gc_page_iterator iter ) {
 	}
 }
 
+// every block a pointer can designate, including the ones that are not allocated (anymore)
+static void gc_iter_all_blocks( gc_pheader *ph, gc_block_iterator iter ) {
+	int i;
+	gc_allocator_page_data *p = &ph->alloc;
+	for(i=p->first_block;i<p->max_blocks;i++) {
+		if( p->sizes && !p->sizes[i] ) continue;
+		iter(ph->base + i*p->block_size,p->sizes?p->sizes[i]*p->block_size:p->block_size);
+	}
+}
+
 static void gc_iter_live_blocks( gc_pheader *ph, gc_block_iterator iter ) {
 	int i;
 	gc_allocator_page_data *p = &ph->alloc;

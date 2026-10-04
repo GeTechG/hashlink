@@ -152,6 +152,7 @@ void *gc_allocator_alloc( int *size, int page_kind );
 void gc_get_stats( int *page_count, int *private_data);
 void gc_iter_pages( gc_page_iterator i );
 void gc_iter_live_blocks( gc_pheader *p, gc_block_iterator i );
+void gc_iter_all_blocks( gc_pheader *p, gc_block_iterator i );
 
 #else
 #	include "allocator.h"
@@ -1316,6 +1317,34 @@ void hl_free( hl_alloc *a ) {
 	// check if our allocator was not part of the last free block
 	if( (int_val)a < prev || (int_val)a > prev+size )
 		a->cur = NULL;
+}
+
+static hl_alloc *forget_alloc;
+
+static void gc_forget_block( void *block, int size ) {
+	unsigned char *t = *(unsigned char**)block;
+	hl_alloc_block *b = forget_alloc->cur;
+	while( b ) {
+		if( t >= (unsigned char*)b && t < b->p + b->size ) {
+			*(void**)block = NULL; // same as a block that is not allocated : not scanned
+			return;
+		}
+		b = b->next;
+	}
+}
+
+static void gc_forget_page( gc_pheader *p, int private_data ) {
+	if( p->page_kind == MEM_KIND_DYNAMIC )
+		gc_iter_all_blocks(p, gc_forget_block);
+}
+
+HL_API void hl_gc_forget_types( hl_alloc *a ) {
+	gc_global_lock(true);
+	gc_stop_world(true);
+	forget_alloc = a;
+	gc_iter_pages(gc_forget_page);
+	gc_stop_world(false);
+	gc_global_lock(false);
 }
 
 HL_PRIM void *hl_alloc_executable_memory( int size ) {

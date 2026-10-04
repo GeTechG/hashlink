@@ -642,7 +642,8 @@ typedef struct {
 	// Frees the plugin's types, runtime objects and JIT code. Nothing is checked: the caller must
 	// ensure that nothing of the plugin is still in use, or the next GC pass, dynamic call or
 	// return will read freed/unmapped memory. Before the call there must be:
-	// - no live object whose type was allocated by the plugin (drop the references, then run a major GC)
+	// - no object in use whose type was allocated by the plugin : drop the references. An object that only
+	//   the GC still sees (a stale pointer on a stack) is harmless, it is not scanned anymore
 	// - no closure pointing into the plugin code
 	// - no plugin frame on the stack of any thread (so a plugin cannot unload itself)
 	// - nothing left to a library (.hdll) that only the plugin loaded : it is closed with the plugin, so no
@@ -833,6 +834,10 @@ HL_API void *hl_gc_alloc_gen( hl_type *t, int size, int flags );
 HL_API void hl_add_root( void *ptr );
 HL_API void hl_remove_root( void *ptr );
 HL_API void hl_gc_major( void );
+// To be called before the types allocated in `a` are freed : the GC reads the type of every block it
+// visits, and a stale pointer on a stack is enough for it to visit an object that is not used anymore,
+// even one that was already collected. The blocks having one of these types lose it and are not scanned.
+HL_API void hl_gc_forget_types( hl_alloc *a );
 HL_API bool hl_is_gc_ptr( void *ptr );
 HL_API int hl_gc_get_memsize( void *ptr );
 

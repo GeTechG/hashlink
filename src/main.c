@@ -168,6 +168,7 @@ static bool load_plugin( pchar *file ) {
 // Once it is freed, the string and bytes constants of the plugin are gone as well as its types.
 static void free_plugin( hl_module *m ) {
 	hl_code *code = m->code;
+	hl_gc_forget_types(&code->alloc);
 	hl_module_remove(m);
 	hl_free(&code->alloc);
 }
