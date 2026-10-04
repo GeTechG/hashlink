@@ -27,6 +27,7 @@
 #elif !defined(HL_WIN)
 #	include <sys/types.h>
 #	include <unistd.h>
+#	include <fcntl.h>
 #	include <errno.h>
 #	include <signal.h>
 #	if !defined(HL_MAC)
@@ -73,6 +74,31 @@ static void process_finalize( vprocess *p ) {
 	close(p->iwrite);
 #	endif
 }
+
+#ifndef HL_WIN
+static void close_pipes( int fds[6] ) {
+	int i;
+	for(i=0;i<6;i++)
+		if( fds[i] >= 0 ) close(fds[i]);
+}
+
+// close-on-exec, so that the next processes we start do not inherit the pipes of this one
+static bool open_pipes( int fds[6] ) {
+	int i;
+	for(i=0;i<6;i++)
+		fds[i] = -1;
+	for(i=0;i<6;i+=2)
+		if( pipe(fds+i) ) {
+			close_pipes(fds);
+			return false;
+		}
+#	ifdef FD_CLOEXEC
+	for(i=0;i<6;i++)
+		fcntl(fds[i],F_SETFD,FD_CLOEXEC);
+#	endif
+	return true;
+}
+#endif
 
 HL_PRIM vprocess *hl_process_run( vbyte *cmd, varray *vargs, bool detached ) {
 	vprocess *p;
@@ -138,9 +164,12 @@ HL_PRIM vprocess *hl_process_run( vbyte *cmd, varray *vargs, bool detached ) {
 			argv[i+1] = hl_aptr(vargs,char*)[i];
 		argv[i+1] = NULL;
 	}
-	int input[2], output[2], error[2];
-	if( pipe(input) || pipe(output) || pipe(error) )
+	int fds[6];
+	int *input = fds, *output = fds + 2, *error = fds + 4;
+	if( !open_pipes(fds) ) {
+		free(argv);
 		return NULL;
+	}
 #ifdef HL_TVOS
 	hl_error("hl_process_run() not available for this platform");
 	p->pid = -1;
@@ -148,12 +177,8 @@ HL_PRIM vprocess *hl_process_run( vbyte *cmd, varray *vargs, bool detached ) {
 	p->pid = fork();
 #endif
 	if( p->pid == -1 ) {
-		close(input[0]);
-		close(input[1]);
-		close(output[0]);
-		close(output[1]);
-		close(error[0]);
-		close(error[1]);
+		close_pipes(fds);
+		free(argv);
 		return NULL;
 	}
 	// child
@@ -164,6 +189,12 @@ HL_PRIM vprocess *hl_process_run( vbyte *cmd, varray *vargs, bool detached ) {
 		dup2(input[0],0);
 		dup2(output[1],1);
 		dup2(error[1],2);
+#	ifdef FD_CLOEXEC
+		// a pipe end that already was 0, 1 or 2 is not duplicated and keeps the flag
+		fcntl(0,F_SETFD,0);
+		fcntl(1,F_SETFD,0);
+		fcntl(2,F_SETFD,0);
+#	endif
 #ifdef HL_TVOS
 		hl_error("hl_process_run() not available for this platform");
 #else
@@ -173,6 +204,7 @@ HL_PRIM vprocess *hl_process_run( vbyte *cmd, varray *vargs, bool detached ) {
 		exit(1);
 	}
 	// parent
+	free(argv);
 	close(input[0]);
 	close(output[1]);
 	close(error[1]);
