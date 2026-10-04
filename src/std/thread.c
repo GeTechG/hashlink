@@ -465,23 +465,119 @@ DEFINE_PRIM(_VOID, condition_broadcast, _CONDITION)
 // ----------------- THREAD LOCAL
 
 #if defined(HL_THREADS)
-static void _tls_store_free( void *store ) {
-	hl_remove_root(store);
-	free(store);
+
+// the per thread storage of a TLS holding a GC value
+typedef struct _tls_store tls_store;
+struct _tls_store {
+	void *value; // GC root
+	hl_tls *tls;
+	void *thread;
+	tls_store *next;
+};
+
+// all the live stores : walked when a thread exits and when a TLS is freed, the two only places where they are released
+static tls_store *tls_stores = NULL;
+static int_val tls_thread_uid = 0;
+// false if the exit key could not be allocated : the stores are then only released with their TLS
+static bool tls_exit_ok = false;
+
+#ifdef HL_WIN
+static INIT_ONCE tls_once = INIT_ONCE_STATIC_INIT;
+static CRITICAL_SECTION tls_lock;
+static DWORD tls_exit_key;
+#	define TLS_LOCK()		EnterCriticalSection(&tls_lock)
+#	define TLS_UNLOCK()		LeaveCriticalSection(&tls_lock)
+#else
+static pthread_once_t tls_once = PTHREAD_ONCE_INIT;
+static pthread_mutex_t tls_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_key_t tls_exit_key;
+#	define TLS_LOCK()		pthread_mutex_lock(&tls_lock)
+#	define TLS_UNLOCK()		pthread_mutex_unlock(&tls_lock)
+#endif
+
+// release the stores of a TLS, or the ones of a thread if l is NULL
+static void tls_release_stores( hl_tls *l, void *thread ) {
+	tls_store *s, **prev = &tls_stores, *released = NULL;
+	TLS_LOCK();
+	while( (s = *prev) != NULL ) {
+		if( l ? s->tls == l : s->thread == thread ) {
+			*prev = s->next;
+			s->next = released;
+			released = s;
+		} else
+			prev = &s->next;
+	}
+	TLS_UNLOCK();
+	// out of the lock : hl_remove_root takes the GC lock, which a finalizer already holds when it gets here
+	while( (s = released) != NULL ) {
+		released = s->next;
+		hl_remove_root(s);
+		free(s);
+	}
 }
-static void **_tls_get( hl_tls *t ) {
+
+// TlsAlloc and pthread_key_delete don't give us a per key callback : a single key tells when a thread exits.
+// On Windows the callback also runs when a fiber is deleted : the thread that registered to the GC on that fiber
+// can't run HL code anymore, its stack being the one the GC scans
+#ifdef HL_WIN
+static void WINAPI tls_thread_exit( void *thread ) {
+	tls_release_stores(NULL, thread);
+}
+static BOOL CALLBACK tls_init( PINIT_ONCE once, void *param, void **ctx ) {
+	InitializeCriticalSection(&tls_lock);
+	tls_exit_key = FlsAlloc(tls_thread_exit);
+	tls_exit_ok = tls_exit_key != FLS_OUT_OF_INDEXES;
+	return TRUE;
+}
+#else
+static void tls_thread_exit( void *thread ) {
+	tls_release_stores(NULL, thread);
+}
+static void tls_init() {
+	tls_exit_ok = pthread_key_create(&tls_exit_key, tls_thread_exit) == 0;
+}
+#endif
+
+static void *_tls_get( hl_tls *t ) {
 #	ifdef HL_WIN
-	return (void**)TlsGetValue(t->tid);
+	return TlsGetValue(t->tid);
 #	else
-	return (void**)pthread_getspecific(t->key);
+	return pthread_getspecific(t->key);
 #	endif
 }
-static void _tls_set( hl_tls *t, void *store ) {
+static void _tls_set( hl_tls *t, void *v ) {
 #	ifdef HL_WIN
-	TlsSetValue(t->tid, store);
+	TlsSetValue(t->tid, v);
 #	else
-	pthread_setspecific(t->key, store);
+	pthread_setspecific(t->key, v);
 #	endif
+}
+
+static tls_store *tls_store_alloc( hl_tls *l ) {
+	tls_store *s = (tls_store*)malloc(sizeof(tls_store));
+	s->value = NULL;
+	s->tls = l;
+	s->thread = NULL;
+	hl_add_root(s);
+	if( tls_exit_ok )
+#	ifdef HL_WIN
+		s->thread = FlsGetValue(tls_exit_key);
+#	else
+		s->thread = pthread_getspecific(tls_exit_key);
+#	endif
+	TLS_LOCK();
+	if( !s->thread ) s->thread = (void*)++tls_thread_uid;
+	s->next = tls_stores;
+	tls_stores = s;
+	TLS_UNLOCK();
+	if( tls_exit_ok )
+#	ifdef HL_WIN
+		FlsSetValue(tls_exit_key, s->thread);
+#	else
+		pthread_setspecific(tls_exit_key, s->thread);
+#	endif
+	_tls_set(l, s);
+	return s;
 }
 #endif
 
@@ -497,12 +593,14 @@ HL_PRIM hl_tls *hl_tls_alloc( bool gc_value ) {
 	l->tid = TlsAlloc();
 	l->gc = gc_value;
 	TlsSetValue(l->tid,NULL);
+	if( gc_value ) InitOnceExecuteOnce(&tls_once, tls_init, NULL, NULL);
 	return l;
 #	else
 	hl_tls *l = (hl_tls*)hl_gc_alloc_finalizer(sizeof(hl_tls));
 	l->free = hl_tls_free;
 	l->gc = gc_value;
-	pthread_key_create(&l->key,gc_value ? _tls_store_free : NULL);
+	pthread_key_create(&l->key,NULL);
+	if( gc_value ) pthread_once(&tls_once, tls_init);
 	return l;
 #	endif
 }
@@ -510,15 +608,15 @@ HL_PRIM hl_tls *hl_tls_alloc( bool gc_value ) {
 HL_PRIM void hl_tls_free( hl_tls *l ) {
 #	if !defined(HL_THREADS)
 	// allocated by the GC
-#	elif defined(HL_WIN)
-	if( l->free ) {
-		TlsFree(l->tid);
-		l->free = NULL;
-	}
 #	else
 	if( l->free ) {
-		pthread_key_delete(l->key);
 		l->free = NULL;
+		if( l->gc ) tls_release_stores(l, NULL);
+#		ifdef HL_WIN
+		TlsFree(l->tid);
+#		else
+		pthread_key_delete(l->key);
+#		endif
 	}
 #	endif
 }
@@ -528,22 +626,13 @@ HL_PRIM void hl_tls_set( hl_tls *l, void *v ) {
 	l->value = v;
 #	else
 	if( l->gc ) {
-		void **store = _tls_get(l);
-		if( !store) {
-			if( !v )
-				return;
-			store = (void**)malloc(sizeof(void*));
-			*store = NULL;
-			hl_add_root(store);
-			_tls_set(l, store);
-		} else {
-			if( !v ) {
-				_tls_store_free(store);
-				_tls_set(l, NULL);
-				return;
-			}
+		tls_store *s = (tls_store*)_tls_get(l);
+		// the store is kept when the value is reset : it is released with its thread or its TLS
+		if( !s ) {
+			if( !v ) return;
+			s = tls_store_alloc(l);
 		}
-		*store = v;
+		s->value = v;
 	} else
 		_tls_set(l, v);
 #	endif
@@ -553,9 +642,9 @@ HL_PRIM void *hl_tls_get( hl_tls *l ) {
 #	if !defined(HL_THREADS)
 	return l->value;
 #	else
-	void **store = _tls_get(l);
-	if( !l->gc ) return store;
-	return store ? *store : NULL;
+	void *v = _tls_get(l);
+	if( !l->gc ) return v;
+	return v ? ((tls_store*)v)->value : NULL;
 #	endif
 }
 
