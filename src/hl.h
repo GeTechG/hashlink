@@ -1029,6 +1029,7 @@ typedef struct {
 	thread_t mach_thread_id;
 	pthread_t pthread_id;
 	#endif
+	hl_thread *handle;
 } hl_thread_info;
 
 typedef struct {

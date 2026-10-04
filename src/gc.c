@@ -391,6 +391,7 @@ HL_API void hl_register_thread( void *stack_top ) {
 	t->mach_thread_id = mach_thread_self();
 	t->pthread_id = (pthread_t)hl_thread_current();
 	#endif
+	t->handle = hl_thread_current();
 	t->stack_top = stack_top;
 	t->flags = HL_TRACK_MASK << HL_TREAD_TRACK_SHIFT;
 	current_thread = t;

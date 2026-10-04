@@ -967,7 +967,12 @@ HL_PRIM int hl_get_thread_id( hl_thread *t ) {
 	pthread_threadid_np((pthread_t)t, &tid64);
 	return (pid_t)tid64;
 #else
-	return -1; // no way to get that on linux :'(
+	// no way to get that from a pthread_t on linux : lookup the registered threads
+	hl_threads_info *threads = hl_gc_threads_info();
+	for(int i=0;i<threads->count;i++)
+		if( threads->threads[i]->handle == t )
+			return threads->threads[i]->thread_id;
+	return -1;
 #endif
 }
 
