@@ -29,6 +29,7 @@
 EXTERN_C IMAGE_DOS_HEADER __ImageBase;
 #	define dlopen(l,p)		(void*)( (l) ? LoadLibraryA(l) : (HMODULE)&__ImageBase)
 #	define dlsym(h,n)		GetProcAddress((HANDLE)h,n)
+#	define dlclose(h)		FreeLibrary((HMODULE)h)
 #else
 #	include <dlfcn.h>
 #endif
@@ -468,7 +469,14 @@ static void append_fields( char **p, hl_type *t ) {
 
 #define DISABLED_LIB_PTR ((void*)(int_val)2)
 
-static void *resolve_library( const char *lib, bool is_opt ) {
+// the module keeps the handle, for hl_module_free to close it (it stays open if there is no memory to keep it)
+static void *open_library( hl_module *m, const char *file ) {
+	void *h = dlopen(file,RTLD_LAZY);
+	if( h != NULL && m->libs != NULL ) m->libs[m->nlibs++] = h;
+	return h;
+}
+
+static void *resolve_library( hl_module *m, const char *lib, bool is_opt ) {
 	char tmp[256];
 	void *h;
 
@@ -492,10 +500,10 @@ static void *resolve_library( const char *lib, bool is_opt ) {
 	if( strcmp(lib,"std") == 0 ) {
 #	ifdef HL_WIN
 #		ifdef HL_64
-		h = dlopen("libhl64.dll",RTLD_LAZY);
-		if( h == NULL ) h = dlopen("libhl.dll",RTLD_LAZY);
+		h = open_library(m,"libhl64.dll");
+		if( h == NULL ) h = open_library(m,"libhl.dll");
 #		else
-		h = dlopen("libhl.dll",RTLD_LAZY);
+		h = open_library(m,"libhl.dll");
 #		endif
 		if( h == NULL && !is_opt ) hl_fatal1("Failed to load library %s","libhl.dll");
 		return h;
@@ -508,12 +516,12 @@ static void *resolve_library( const char *lib, bool is_opt ) {
 
 #	ifdef HL_64
 	strcpy(tmp+strlen(lib),"64.hdll");
-	h = dlopen(tmp,RTLD_LAZY);
+	h = open_library(m,tmp);
 	if( h != NULL ) return h;
 #	endif
 
 	strcpy(tmp+strlen(lib),".hdll");
-	h = dlopen(tmp,RTLD_LAZY);
+	h = open_library(m,tmp);
 	if( h == NULL && !is_opt )
 		hl_fatal1("Failed to load library %s",tmp);
 	return h;
@@ -683,6 +691,8 @@ static void hl_module_init_natives( hl_module *m ) {
 	int i;
 	void *libHandler = NULL;
 	const char *curlib = NULL, *sign;
+	// a library is opened at most once per native
+	m->libs = (void**)malloc(sizeof(void*)*m->code->nnatives);
 	for(i=0;i<m->code->nnatives;i++) {
 		hl_native *n = m->code->natives + i;
 		const char *lib = n->lib;
@@ -692,7 +702,7 @@ static void hl_module_init_natives( hl_module *m ) {
 		if( is_opt ) lib++;
 		if( curlib != lib ) {
 			curlib = lib;
-			libHandler = resolve_library(lib, is_opt);
+			libHandler = resolve_library(m, lib, is_opt);
 		}
 		if( libHandler == DISABLED_LIB_PTR ) {
 			m->functions_ptrs[n->findex] = disabled_primitive;
@@ -1256,6 +1266,9 @@ void hl_module_free( hl_module *m ) {
 	}
 	if( m->jit_ctx )
 		hl_jit_free(m->jit_ctx,false);
+	for(int i=0;i<m->nlibs;i++)
+		dlclose(m->libs[i]);
+	free(m->libs);
 	free(m);
 }
 

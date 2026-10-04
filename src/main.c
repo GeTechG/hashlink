@@ -54,14 +54,15 @@ typedef struct {
 	int file_time;
 } main_context;
 
+// 0 if the file cannot be read
 static int pfiletime( pchar *file )	{
 #ifdef HL_WIN
 	struct _stat32 st;
-	_wstat32(file,&st);
+	if( _wstat32(file,&st) != 0 ) return 0;
 	return (int)st.st_mtime;
 #else
 	struct stat st;
-	stat(file,&st);
+	if( stat(file,&st) != 0 ) return 0;
 	return (int)st.st_mtime;
 #endif
 }
@@ -78,17 +79,19 @@ static hl_code *load_code( const pchar *file, char **error_msg, bool print_error
 	fseek(f, 0, SEEK_END);
 	size = (int)ftell(f);
 	fseek(f, 0, SEEK_SET);
-	fdata = (char*)malloc(size);
+	fdata = size < 0 ? NULL : (char*)malloc(size);
 	pos = 0;
-	while( pos < size ) {
+	while( fdata && pos < size ) {
 		int r = (int)fread(fdata + pos, 1, size-pos, f);
-		if( r <= 0 ) {
-			if( print_errors ) pprintf("Failed to read '%s'\n",file);
-			return NULL;
-		}
+		if( r <= 0 ) break;
 		pos += r;
 	}
 	fclose(f);
+	if( fdata == NULL || pos < size ) {
+		free(fdata);
+		if( print_errors ) pprintf("Failed to read '%s'\n",file);
+		return NULL;
+	}
 	code = hl_code_read((unsigned char*)fdata, size, error_msg);
 	free(fdata);
 	return code;
@@ -124,11 +127,12 @@ on_exception:
 	hl_rethrow(exc);
 }
 
-static bool load_plugin( pchar *file ) {
+// the module of a plugin, initialized but not started. NULL if it could not be loaded : nothing of it is kept
+static hl_module *load_plugin_module( pchar *file ) {
 	char *error_msg = NULL;
 	hl_code *code = load_code(file, &error_msg, false);
 	if( code == NULL )
-		return false;
+		return NULL;
 	int i;
 	for(i=0;i<code->ntypes;i++) {
 		hl_type *t1 = code->types + i;
@@ -138,11 +142,19 @@ static bool load_plugin( pchar *file ) {
 		if( t2 ) t1->obj->name = t2->obj->name;
 	}
 	hl_module *m = hl_module_alloc(code);
+	if( m != NULL && !hl_module_init(m,0) ) {
+		hl_module_free(m);
+		m = NULL;
+	}
+	hl_code_free(code);
+	if( m == NULL ) hl_free(&code->alloc);
+	return m;
+}
+
+static bool load_plugin( pchar *file ) {
+	hl_module *m = load_plugin_module(file);
 	if( m == NULL )
 		return false;
-	if( !hl_module_init(m,0) )
-		return false;
-	hl_code_free(code);
 	vclosure cl;
 	cl.t = m->code->functions[m->functions_indexes[m->code->entrypoint]].type;
 	cl.fun = m->functions_ptrs[m->code->entrypoint];
@@ -180,31 +192,10 @@ on_exception:
 }
 
 static int load_plugin_id( pchar *file ) {
-	char *error_msg = NULL;
-	hl_code *code = load_code(file, &error_msg, false);
-	if( code == NULL )
+	hl_module *m = load_plugin_module(file);
+	if( m == NULL )
 		return -1;
 	int i;
-	for(i=0;i<code->ntypes;i++) {
-		hl_type *t1 = code->types + i;
-		if( t1->kind != HOBJ && t1->kind != HSTRUCT ) continue;
-		hl_type *t2 = hl_module_resolve_type(main_ctx->m, t1, false);
-		// ensure that cast will work between types !
-		if( t2 ) t1->obj->name = t2->obj->name;
-	}
-	hl_module *m = hl_module_alloc(code);
-	if( m == NULL ) {
-		hl_code_free(code);
-		hl_free(&code->alloc);
-		return -1;
-	}
-	if( !hl_module_init(m,0) ) {
-		hl_module_free(m);
-		hl_code_free(code);
-		hl_free(&code->alloc);
-		return -1;
-	}
-	hl_code_free(code);
 	// register, reusing a freed slot so the table does not grow per reload
 	int id = -1;
 	for(i=0;i<plugins_count;i++)
@@ -250,6 +241,8 @@ static vdynamic *resolve_type( hl_type *t, hl_type *gt ) {
 	hl_module_context *m = t->obj->m;
 	hl_module_context *m2 = t2->obj->m;
 	hl_type *gt2 = hl_module_resolve_type(main_ctx->m, gt, true);
+	if( gt2 == NULL )
+		return NULL;
 	// patch bindings (constructor, etc.)
 	int i;
 	for(i=0;i<gt->obj->nbindings;i++) {

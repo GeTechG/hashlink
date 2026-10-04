@@ -645,6 +645,8 @@ typedef struct {
 	// - no live object whose type was allocated by the plugin (drop the references, then run a major GC)
 	// - no closure pointing into the plugin code
 	// - no plugin frame on the stack of any thread (so a plugin cannot unload itself)
+	// - nothing left to a library (.hdll) that only the plugin loaded : it is closed with the plugin, so no
+	//   object it has to finalize, no callback or thread of it
 	// - no string or bytes kept that is a constant of the plugin : a literal is not copied, its data
 	//   points into the plugin code and is freed with it, whatever the type of the object holding it
 	//   (a name stored in a host registry, a Map key...). Values computed at runtime (concatenation,

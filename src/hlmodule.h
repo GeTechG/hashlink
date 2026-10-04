@@ -149,6 +149,8 @@ typedef struct {
 	jit_ctx *jit_ctx;
 	bool debug;
 	hl_module_context ctx;
+	void **libs; // the libraries opened for the natives, closed by hl_module_free
+	int nlibs;
 #ifdef WIN64_UNWIND_TABLES
 	int unwind_table_size;
 	PRUNTIME_FUNCTION unwind_table;
