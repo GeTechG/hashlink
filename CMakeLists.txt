@@ -361,6 +361,19 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # closuresingle.hl
+
+    add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/closuresingle.hl
+        COMMAND ${HAXE_COMPILER}
+            ${HAXE_HL_FLAGS}
+            -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/closuresingle.hl
+            -cp ${CMAKE_SOURCE_DIR}/other/tests -main ClosureSingle
+    )
+    add_custom_target(closuresingle.hl ALL
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/closuresingle.hl
+    )
+
+    #####################
     # reload.hl (hot reload : the other files are the same program built with other defines, see Reload.hx)
 
     set(RELOAD_v1 -D v1)
@@ -564,6 +577,9 @@ if(BUILD_TESTING)
         )
         add_test(NAME todyn.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/todyn.hl
+        )
+        add_test(NAME closuresingle.hl
+            COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/closuresingle.hl
         )
         add_test(NAME reload.hl
             COMMAND hl --hot-reload ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/reload_v1.hl

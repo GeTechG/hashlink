@@ -363,7 +363,7 @@ static vdynamic *callback_hl2c( vclosure_wrapper *c, char *stack_args, void **re
 		} else if( hl_is_dynamic(t) ) {
 			args[i] = *(vdynamic**)(regs + creg);
 		} else if( t->kind == HF32 || t->kind == HF64 ) {
-			args[i] = hl_make_dyn(regs + arg_reg_count + creg,&hlt_f64);
+			args[i] = hl_make_dyn(regs + arg_reg_count + creg,t);
 		} else {
 			args[i] = hl_make_dyn(regs + creg,t);
 		}

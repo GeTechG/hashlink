@@ -1926,6 +1926,17 @@ void hl_codegen_init( jit_ctx *jit ) {
 	if( IS_WINCALL64 )
 		EMIT(ADD,R(RSP),MK_CONST(0x20),M_PTR);
 
+	// jit_wrapper_d returns a double : if( arg0->t->fun->ret->kind == HF32 ) convert it (arg0 was pushed last)
+	EMIT(_MOV,tmp,MK_ADDR(RSP,0),M_PTR);
+	EMIT(_MOV,tmp,MK_ADDR(tmp,0),M_PTR); // ->t
+	EMIT(_MOV,tmp,MK_ADDR(tmp,HL_WSIZE),M_PTR); // ->fun
+	EMIT(_MOV,tmp,MK_ADDR(tmp,(int)(int_val)&ft->ret),M_PTR); // ->ret
+	EMIT(_MOV,tmp,MK_ADDR(tmp,0),M_I32); // ->kind
+	EMIT(_CMP,tmp,MK_CONST(HF32),M_I32);
+	int not_f32 = jump_near(ctx,JNeq);
+	EMIT(CVTSD2SS,cfg->floats.ret,cfg->floats.ret,M_F64);
+	patch_jump_near(ctx, not_f32);
+
 	EMIT(_MOV,R(RSP),R(RBP),M_PTR);
 	EMIT(_POP,R(RBP),UNUSED,M_PTR);
 	EMIT(_RET,UNUSED,UNUSED,M_NONE);
