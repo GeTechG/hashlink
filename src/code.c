@@ -281,7 +281,7 @@ static void hl_read_type( hl_reader *r, hl_type *t ) {
 	}
 }
 
-// the indexes into the tables of the code, registers and jumps are left to the JIT
+// the indexes into the tables of the code, the operands that depend on the function are checked by hl_check_function
 static void hl_check_opcode( hl_reader *r, hl_opcode *o ) {
 	hl_code *c = r->code;
 	int idx = o->p2, max;
@@ -310,6 +310,7 @@ static void hl_check_opcode( hl_reader *r, hl_opcode *o ) {
 		max = c->nglobals;
 		break;
 	case OSetGlobal:
+	case OCatch:
 		idx = o->p1;
 		max = c->nglobals;
 		break;
@@ -510,6 +511,10 @@ static void hl_check_objs( hl_reader *r ) {
 	for(i=0;i<c->ntypes;i++) {
 		hl_type *t = c->types + i, *s;
 		int depth = 0, nfields = 0;
+		if( t->kind == HPACKED && t->tparam->kind != HOBJ && t->tparam->kind != HSTRUCT ) {
+			ERROR("Invalid packed type");
+			return;
+		}
 		if( t->kind != HOBJ && t->kind != HSTRUCT ) continue;
 		for(s=t;s;s=s->obj->super) {
 			// a chain longer than the types is a loop
@@ -527,8 +532,8 @@ static void hl_check_objs( hl_reader *r ) {
 	}
 }
 
-// each function index is used exactly once, by a function or by a native
-static void hl_check_findexes( hl_reader *r ) {
+// each function index is used exactly once, by a function (1) or by a native (2)
+static char *hl_check_findexes( hl_reader *r ) {
 	hl_code *c = r->code;
 	int i, total = c->nfunctions + c->nnatives;
 	char *used = (char*)hl_zalloc(&c->falloc,total);
@@ -537,13 +542,291 @@ static void hl_check_findexes( hl_reader *r ) {
 		int fid = is_fun ? c->functions[i].findex : c->natives[i - c->nfunctions].findex;
 		if( fid >= total || used[fid] ) {
 			ERROR("Invalid function index");
-			return;
+			return used;
 		}
 		used[fid] = is_fun ? 1 : 2;
 	}
 	if( c->entrypoint >= total || used[c->entrypoint] != 1 )
 		ERROR("Invalid entry point");
+	return used;
 }
+
+static bool hl_check_field( hl_type *t, int fid, bool obj_only ) {
+	int n = 0;
+	switch( t->kind ) {
+	case HOBJ:
+	case HSTRUCT:
+		for(;t;t=t->obj->super)
+			n += t->obj->nfields;
+		break;
+	case HVIRTUAL:
+		if( obj_only ) return false;
+		n = t->virt->nfields;
+		break;
+	default:
+		return false;
+	}
+	return fid >= 0 && fid < n;
+}
+
+// the method of an OVirtualClosure is looked up by the JIT to get its type
+static bool hl_check_method( hl_type *t, int pindex, const char *funs ) {
+	int i;
+	if( (t->kind != HOBJ && t->kind != HSTRUCT) || pindex < 0 ) return false;
+	for(;t;t=t->obj->super)
+		for(i=0;i<t->obj->nproto;i++)
+			if( t->obj->proto[i].pindex == pindex )
+				return funs[t->obj->proto[i].findex] == 1;
+	return false;
+}
+
+#define CHK(cond,msg)	if( !(cond) ) { ERROR(msg); return; }
+#define REG(v)			CHK((unsigned)(v) < (unsigned)f->nregs,"Invalid opcode register")
+#define JUMP(v)			CHK((unsigned)(i + 1 + (v)) < (unsigned)f->nops,"Invalid opcode jump")
+#define FIELD(c)		CHK(c,"Invalid opcode field")
+#define ENUM(v)			CHK(f->regs[v]->kind == HENUM,"Invalid opcode type")
+#define NOVOID(v)		CHK(f->regs[v]->kind != HVOID,"Invalid opcode type")
+
+// the operands that the JIT uses while compiling : registers, jumps, and the fields, methods and constructors
+// it looks up in the type of a register. It does not type the code : the values are only read when it runs
+static void hl_check_function( hl_reader *r, hl_function *f, const char *funs ) {
+	int i, j;
+	CHK(f->type->kind == HFUN && f->type->fun->nargs <= f->nregs,"Invalid function type");
+	for(i=0;i<f->nops;i++) {
+		hl_opcode *o = f->ops + i;
+		hl_enum_construct *c;
+		switch( o->op ) {
+		case OInt:
+		case OFloat:
+		case OBool:
+		case OBytes:
+		case OString:
+		case ONull:
+		case OCall0:
+		case OStaticClosure:
+		case OGetGlobal:
+		case OType:
+		case ORet:
+		case OThrow:
+		case ORethrow:
+		case ONew:
+			REG(o->p1);
+			break;
+		case ONullCheck:
+			REG(o->p1);
+			// the next opcode tells which field is accessed
+			CHK(i + 1 < f->nops,"Invalid opcode");
+			break;
+		case OIncr:
+		case ODecr:
+			REG(o->p1);
+			NOVOID(o->p1);
+			break;
+		case ONeg:
+		case ONot:
+			REG(o->p1);
+			REG(o->p2);
+			NOVOID(o->p1);
+			break;
+		case OMov:
+		case OToDyn:
+		case OToSFloat:
+		case OToUFloat:
+		case OToInt:
+		case OSafeCast:
+		case OUnsafeCast:
+		case OToVirtual:
+		case OArraySize:
+		case OGetType:
+		case OGetTID:
+		case ORef:
+		case OUnref:
+		case OSetref:
+		case OEnumIndex:
+		case ORefData:
+		case ODynGet:
+			REG(o->p1);
+			REG(o->p2);
+			break;
+		case ORefOffset:
+			CHK((unsigned)o->p1 < (unsigned)f->nregs && f->regs[o->p1]->kind == HREF,"Invalid opcode type");
+			// fallthrough
+		case OGetI8:
+		case OGetI16:
+		case OGetMem:
+		case OGetArray:
+		case OSetI8:
+		case OSetI16:
+		case OSetMem:
+		case OSetArray:
+			REG(o->p1);
+			REG(o->p2);
+			REG(o->p3);
+			break;
+		case OAdd:
+		case OSub:
+		case OMul:
+		case OSDiv:
+		case OUDiv:
+		case OSMod:
+		case OUMod:
+		case OShl:
+		case OSShr:
+		case OUShr:
+		case OAnd:
+		case OOr:
+		case OXor:
+			REG(o->p1);
+			REG(o->p2);
+			REG(o->p3);
+			// the operation is selected by the kind of the result
+			NOVOID(o->p1);
+			break;
+		case OCall1:
+		case ODynSet:
+			REG(o->p1);
+			REG(o->p3);
+			break;
+		case OCall2:
+			REG(o->p1);
+			REG(o->p3);
+			REG((int)(int_val)o->extra);
+			break;
+		case OCall3:
+		case OCall4:
+			REG(o->p1);
+			REG(o->p3);
+			for(j=0;j<hl_op_nargs[o->op]-3;j++)
+				REG(o->extra[j]);
+			break;
+		case OCallClosure:
+			REG(o->p2);
+			// fallthrough
+		case OCallN:
+		case OCallMethod:
+		case OCallThis:
+		case OMakeEnum:
+			REG(o->p1);
+			for(j=0;j<o->p3;j++)
+				REG(o->extra[j]);
+			switch( o->op ) {
+			case OCallMethod:
+				CHK(o->p3 > 0,"Invalid opcode");
+				if( f->regs[o->extra[0]]->kind == HVIRTUAL ) FIELD(hl_check_field(f->regs[o->extra[0]],o->p2,false));
+				break;
+			case OCallThis:
+				CHK(f->nregs > 0,"Invalid opcode register");
+				break;
+			case OMakeEnum:
+				ENUM(o->p1);
+				FIELD((unsigned)o->p2 < (unsigned)f->regs[o->p1]->tenum->nconstructs && f->regs[o->p1]->tenum->constructs[o->p2].nparams == o->p3);
+				break;
+			default:
+				break;
+			}
+			break;
+		case OInstanceClosure:
+			REG(o->p1);
+			REG(o->p3);
+			CHK(funs[o->p2] == 1,"Invalid opcode index");
+			break;
+		case OVirtualClosure:
+			REG(o->p1);
+			REG(o->p2);
+			FIELD(hl_check_method(f->regs[o->p2],o->p3,funs));
+			break;
+		case OSetGlobal:
+			REG(o->p2);
+			break;
+		case OField:
+			REG(o->p1);
+			REG(o->p2);
+			FIELD(hl_check_field(f->regs[o->p2],o->p3,false));
+			break;
+		case OSetField:
+			REG(o->p1);
+			REG(o->p3);
+			FIELD(hl_check_field(f->regs[o->p1],o->p2,false));
+			break;
+		case OGetThis:
+			REG(o->p1);
+			FIELD(f->nregs > 0 && hl_check_field(f->regs[0],o->p2,true));
+			break;
+		case OSetThis:
+			REG(o->p2);
+			FIELD(f->nregs > 0 && hl_check_field(f->regs[0],o->p1,true));
+			break;
+		case OPrefetch:
+			REG(o->p1);
+			if( o->p2 > 0 ) FIELD(hl_check_field(f->regs[o->p1],o->p2 - 1,true));
+			break;
+		case OJTrue:
+		case OJFalse:
+		case OJNull:
+		case OJNotNull:
+			REG(o->p1);
+			JUMP(o->p2);
+			break;
+		case OJSLt:
+		case OJSGte:
+		case OJSGt:
+		case OJSLte:
+		case OJULt:
+		case OJUGte:
+		case OJNotLt:
+		case OJNotGte:
+		case OJEq:
+		case OJNotEq:
+			REG(o->p1);
+			REG(o->p2);
+			JUMP(o->p3);
+			break;
+		case OJAlways:
+			JUMP(o->p1);
+			break;
+		case OSwitch:
+			REG(o->p1);
+			for(j=0;j<o->p2;j++)
+				JUMP(o->extra[j]);
+			break;
+		case OTrap:
+			REG(o->p1);
+			// the catch comes after the trap
+			CHK(o->p2 >= 0,"Invalid opcode jump");
+			JUMP(o->p2);
+			break;
+		case OEnumAlloc:
+			REG(o->p1);
+			ENUM(o->p1);
+			FIELD((unsigned)o->p2 < (unsigned)f->regs[o->p1]->tenum->nconstructs);
+			break;
+		case OEnumField:
+			REG(o->p1);
+			REG(o->p2);
+			ENUM(o->p2);
+			FIELD((unsigned)o->p3 < (unsigned)f->regs[o->p2]->tenum->nconstructs);
+			c = f->regs[o->p2]->tenum->constructs + o->p3;
+			FIELD((unsigned)(int)(int_val)o->extra < (unsigned)c->nparams);
+			break;
+		case OSetEnumField:
+			REG(o->p1);
+			REG(o->p3);
+			ENUM(o->p1);
+			// always the first constructor
+			FIELD(f->regs[o->p1]->tenum->nconstructs > 0 && (unsigned)o->p2 < (unsigned)f->regs[o->p1]->tenum->constructs->nparams);
+			break;
+		default:
+			break;
+		}
+	}
+}
+
+#undef CHK
+#undef REG
+#undef JUMP
+#undef FIELD
+#undef ENUM
+#undef NOVOID
 
 static void hl_read_constant( hl_reader *r, hl_constant *k ) {
 	hl_code *c = r->code;
@@ -667,6 +950,7 @@ hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
 		n->name = hl_read_string(r);
 		n->t = hl_get_type(r);
 		n->findex = UINDEX();
+		if( !r->error && n->t->kind != HFUN ) ERROR("Invalid native type");
 	}
 	CHK_ERROR();
 	ALLOC(c->functions, hl_function, c->nfunctions);
@@ -695,8 +979,14 @@ hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
 		}
 	}
 	CHK_ERROR();
-	hl_check_findexes(r);
-	CHK_ERROR();
+	{
+		char *funs = hl_check_findexes(r);
+		CHK_ERROR();
+		for(i=0;i<c->nfunctions;i++) {
+			hl_check_function(r,c->functions+i,funs);
+			CHK_ERROR();
+		}
+	}
 	ALLOC(c->constants, hl_constant, c->nconstants);
 	for (i = 0; i < c->nconstants; i++) {
 		hl_read_constant(r, c->constants + i);
