@@ -105,7 +105,8 @@ memfind_rb (const void  *in_block,      /*  Block containing data            */
 
     for (match_base = block;
          match_base < limit;
-         match_base += shift [*(match_base + pattern_size)])
+         /*  the byte after the last position is outside of the block    */
+         match_base += match_base + 1 < limit ? shift [*(match_base + pattern_size)] : 1)
       {
         match_ptr  = match_base;
         match_size = 0;

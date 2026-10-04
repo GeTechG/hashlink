@@ -28,7 +28,7 @@ HL_PRIM varray *hl_alloc_array( hl_type *at, int size ) {
 	}
 	int esize = hl_type_size(at);
 	varray *a;
-	if( size < 0 ) hl_error("Invalid array size");
+	if( size < 0 || (int64)esize * size > 0x7FFFFFFF - (int)sizeof(varray) ) hl_error("Invalid array size");
 	a = (varray*)hl_gc_alloc_gen(&hlt_array, sizeof(varray) + esize*size, (hl_is_ptr(at) ? MEM_KIND_DYNAMIC : MEM_KIND_NOPTR) | MEM_ZERO);
 	a->t = &hlt_array;
 	a->at = at;
@@ -62,6 +62,8 @@ HL_PRIM void *hl_alloc_carray( hl_type *at, int size ) {
 
 	hl_runtime_obj *rt = at->obj->rt;
 	if( rt == NULL || rt->methods == NULL ) rt = hl_get_obj_proto(at);
+	if( (int64)size * rt->size > 0x7FFFFFFF )
+		hl_error("Invalid array size");
 	char *arr = hl_gc_alloc_gen(at, size * rt->size, (rt->hasPtr ? MEM_KIND_RAW : MEM_KIND_NOPTR) | MEM_ZERO);
 	if( at->kind == HOBJ || rt->nbindings ) {
 		int i,k;

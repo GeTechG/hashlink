@@ -217,6 +217,7 @@ MAKE_STDIO(stderr);
 HL_PRIM vbyte *hl_file_contents( vbyte *name, int *size ) {
 	int len;
 	int p = 0;
+	long fpos;
 	vbyte *content;
 #	ifdef HL_UFOPEN
 	FILE *f = fopen((uchar*)name,USTR("rb"));
@@ -227,10 +228,16 @@ HL_PRIM vbyte *hl_file_contents( vbyte *name, int *size ) {
 		return NULL;
 	hl_blocking(true);
 	fseek(f,0,SEEK_END);
-	len = ftell(f);
-	if( size ) *size = len;
+	fpos = ftell(f);
 	fseek(f,0,SEEK_SET);
 	hl_blocking(false);
+	// not seekable (directory, fifo) or does not fit in an int
+	if( fpos < 0 || fpos >= 0x7FFFFFFF ) {
+		fclose(f);
+		return NULL;
+	}
+	len = (int)fpos;
+	if( size ) *size = len;
 	content = (vbyte*)hl_gc_alloc_noptr(size ? len : len+1);
 	hl_blocking(true);
 	if( !size ) content[len] = 0; else if( !len ) content = (vbyte*)""; // final 0 for UTF8

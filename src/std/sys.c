@@ -351,12 +351,12 @@ HL_PRIM bool hl_sys_set_time_locale( vbyte *l ) {
 
 
 HL_PRIM vbyte *hl_sys_get_cwd() {
-	pchar buf[256];
+	pchar buf[256 + 1]; // room for the trailing slash
 	int l;
 	if( getcwd(buf,256) == NULL )
 		return NULL;
 	l = (int)pstrlen(buf);
-	if( buf[l-1] != '/' && buf[l-1] != '\\' ) {
+	if( l == 0 || (buf[l-1] != '/' && buf[l-1] != '\\') ) {
 		buf[l] = '/';
 		buf[l+1] = 0;
 	}
@@ -629,7 +629,7 @@ HL_PRIM vbyte *hl_sys_exe_path() {
 	return sys_exe_path();
 #else
 	pchar path[PATH_MAX];
-	int length = readlink("/proc/self/exe", path, sizeof(path));
+	int length = readlink("/proc/self/exe", path, sizeof(path) - 1);
 	if( length < 0 ) {
 		const pchar *p = getenv("_");
 		if( p != NULL )
