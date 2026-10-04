@@ -1202,7 +1202,8 @@ h_bool hl_module_patch( hl_module *m1, hl_code *c ) {
 	vdynamic *exc = NULL;
 	for(i=modules_count-1;i>=0;i--) {
 		hl_module *m = cur_modules[i];
-		if( m->functions_ptrs[m->code->entrypoint] ) {
+		// only m1 and its patches, which share its globals : a plugin has its own and its entry point should not run again
+		if( m->globals_data == m1->globals_data && m->functions_ptrs[m->code->entrypoint] ) {
 			vclosure cl;
 			cl.t = m->code->functions[m->functions_indexes[m->code->entrypoint]].type;
 			cl.fun = m->functions_ptrs[m->code->entrypoint];

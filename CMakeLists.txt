@@ -410,7 +410,7 @@ if(BUILD_TESTING)
     execute_process(COMMAND ${HAXE_COMPILER} --version
         OUTPUT_VARIABLE HAXE_VERSION ERROR_VARIABLE HAXE_VERSION)
     if(HAXE_VERSION MATCHES "^[5-9]")
-        foreach(name plugin host deep)
+        foreach(name plugin host deep reload)
             add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_${name}.hl
                 COMMAND ${HAXE_COMPILER}
                     ${HAXE_HL_FLAGS}
@@ -418,10 +418,19 @@ if(BUILD_TESTING)
                     -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_${name}.hl
             )
         endforeach()
+        # the same program with another body of value(), applied as a hot reload patch (see PluginReload.hx)
+        add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_reload_v2.hl
+            COMMAND ${HAXE_COMPILER}
+                ${HAXE_HL_FLAGS}
+                --cwd ${CMAKE_SOURCE_DIR}/other/tests/plugin reload.hxml -D v2
+                -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_reload_v2.hl
+        )
         add_custom_target(plugin.hl ALL
             DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_plugin.hl
                 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_host.hl
                 ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_deep.hl
+                ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_reload.hl
+                ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_reload_v2.hl
         )
     endif()
 
@@ -594,6 +603,11 @@ if(BUILD_TESTING)
                 COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_host.hl
                     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_plugin.hl
                     ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_deep.hl
+            )
+            add_test(NAME plugin_reload.hl
+                COMMAND hl --hot-reload ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_reload.hl
+                    ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_plugin.hl
+                    ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/plugin_reload_v2.hl
             )
         endif()
         add_test(NAME uvsample.hl
