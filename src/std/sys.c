@@ -382,15 +382,13 @@ HL_PRIM int hl_sys_command( vbyte *cmd ) {
 	ret = system((pchar*)cmd);
 	hl_blocking(false);
 	return ret;
+#elif defined(HL_IOS) || defined(HL_TVOS)
+	hl_error("hl_sys_command() not available on this platform");
+	return 0;
 #else
 	int status;
 	hl_blocking(true);
-#if defined(HL_IOS) || defined(HL_TVOS)
-	status = 0;
-	hl_error("hl_sys_command() not available on this platform");
-#else
 	status = system((pchar*)cmd);
-#endif
 	hl_blocking(false);
 	return WEXITSTATUS(status) | (WTERMSIG(status) << 8);
 #endif

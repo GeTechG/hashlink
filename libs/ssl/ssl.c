@@ -46,9 +46,11 @@ mbedtls_x509_crt *hl_init_cert_chain();
 #endif
 
 // Duplicate from socket.c
-typedef struct _hl_socket {
+typedef struct _hl_socket hl_socket;
+struct _hl_socket {
+	void (*finalize)( hl_socket * );
 	SOCKET sock;
-} hl_socket;
+};
 
 typedef struct _hl_ssl_cert hl_ssl_cert;
 struct _hl_ssl_cert {

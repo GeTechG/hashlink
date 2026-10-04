@@ -82,9 +82,22 @@
 #	define MSG_NOSIGNAL 0
 #endif
 
-typedef struct _hl_socket {
+typedef struct _hl_socket hl_socket;
+struct _hl_socket {
+	void (*finalize)( hl_socket * );
 	SOCKET sock;
-} hl_socket;
+};
+
+static void socket_finalize( hl_socket *s ) {
+	if( s->sock != INVALID_SOCKET ) closesocket(s->sock);
+}
+
+static hl_socket *socket_alloc( SOCKET sock ) {
+	hl_socket *s = (hl_socket*)hl_gc_alloc_finalizer(sizeof(hl_socket));
+	s->finalize = socket_finalize;
+	s->sock = sock;
+	return s;
+}
 
 static int block_error() {
 #ifdef HL_WIN
@@ -126,11 +139,7 @@ HL_PRIM hl_socket *hl_socket_new( bool udp ) {
 		if( old >= 0 ) fcntl(s,F_SETFD,old|FD_CLOEXEC);
 	}
 #	endif
-	{
-		hl_socket *hs = hl_gc_alloc_noptr(sizeof(hl_socket));
-		hs->sock = s;
-		return hs;
-	}
+	return socket_alloc(s);
 }
 
 HL_PRIM bool hl_socket_set_broadcast( hl_socket *s, bool b ) {
@@ -142,16 +151,21 @@ HL_PRIM bool hl_socket_set_broadcast( hl_socket *s, bool b ) {
 
 HL_PRIM void hl_socket_close( hl_socket *s ) {
 	if( !s ) return;
-	closesocket(s->sock);
+	if( s->sock != INVALID_SOCKET ) closesocket(s->sock);
 	s->sock = INVALID_SOCKET;
+	s->finalize = NULL;
 }
 
 HL_PRIM int hl_socket_send_char( hl_socket *s, int c ) {
 	char cc;
+	int r;
 	cc = (char)(unsigned char)c;
 	if( !s )
 		return -2;
-	if( send(s->sock,&cc,1,MSG_NOSIGNAL) == SOCKET_ERROR )
+	hl_blocking(true);
+	r = send(s->sock,&cc,1,MSG_NOSIGNAL);
+	hl_blocking(false);
+	if( r == SOCKET_ERROR )
 		return block_error();
 	return 1;
 }
@@ -160,7 +174,9 @@ HL_PRIM int hl_socket_send( hl_socket *s, vbyte *buf, int pos, int len ) {
 	int r;
 	if( !s )
 		return -2;
+	hl_blocking(true);
 	r = send(s->sock, (char*)buf + pos, len, MSG_NOSIGNAL);
+	hl_blocking(false);
 	if( r == SOCKET_ERROR )
 		return block_error();
 	return r;
@@ -224,22 +240,25 @@ HL_PRIM vbyte *hl_host_to_string( int ip ) {
 }
 
 HL_PRIM vbyte *hl_host_reverse( int ip ) {
-	struct hostent *h;
-	hl_blocking(true);
+	struct hostent *h = NULL;
 #	if defined(HL_WIN) || defined(HL_MAC) || defined(HL_IOS) || defined(HL_TVOS) || defined(HL_CYGWIN) || defined(HL_CONSOLE)
+	hl_blocking(true);
 	h = gethostbyaddr((char *)&ip,4,AF_INET);
+	hl_blocking(false);
 #	elif defined(__ANDROID__)
 	hl_error("hl_host_reverse() not available for this platform");
 #	else
 	struct hostent htmp;
 	int errcode;
 	char buf[1024];
+	hl_blocking(true);
 	gethostbyaddr_r((char*)&ip,4,AF_INET,&htmp,buf,1024,&h,&errcode);
-#	endif
 	hl_blocking(false);
+#	endif
 	if( h == NULL )
 		return NULL;
-	return (vbyte*)h->h_name;
+	// h_name points to buf or to a static buffer
+	return hl_copy_bytes((vbyte*)h->h_name,(int)strlen(h->h_name)+1);
 }
 
 HL_PRIM vbyte *hl_host_local() {
@@ -290,16 +309,13 @@ HL_PRIM hl_socket *hl_socket_accept( hl_socket *s ) {
 	struct sockaddr_in addr;
 	_sockaddr addrlen = sizeof(addr);
 	SOCKET nsock;
-	hl_socket *hs;
 	if( !s ) return NULL;
 	hl_blocking(true);
 	nsock = accept(s->sock,(struct sockaddr*)&addr,&addrlen);
 	hl_blocking(false);
 	if( nsock == INVALID_SOCKET )
 		return NULL;
-	hs = (hl_socket*)hl_gc_alloc_noptr(sizeof(hl_socket));
-	hs->sock = nsock;
-	return hs;
+	return socket_alloc(nsock);
 }
 
 HL_PRIM bool hl_socket_peer( hl_socket *s, int *host, int *port ) {
@@ -382,7 +398,9 @@ HL_PRIM int hl_socket_send_to( hl_socket *s, char *data, int len, int host, int 
 	addr.sin_family = AF_INET;
 	addr.sin_port = htons((unsigned short)port);
 	*(int*)&addr.sin_addr.s_addr = host;
+	hl_blocking(true);
 	len = sendto(s->sock, data, len, MSG_NOSIGNAL, (struct sockaddr*)&addr, sizeof(addr));
+	hl_blocking(false);
 	if( len == SOCKET_ERROR )
 		return block_error();
 	return len;
@@ -424,7 +442,7 @@ static fd_set *make_socket_set( varray *a, char **tmp, int *tmp_size, unsigned i
 	if( a == NULL )
 		return set;
 	req = hl_socket_fd_size(a->size);
-	if( *tmp_size < req )
+	if( req < 0 || *tmp_size < req )
 		return NULL;
 	*tmp_size -= req;
 	*tmp += req;
@@ -432,6 +450,10 @@ static fd_set *make_socket_set( varray *a, char **tmp, int *tmp_size, unsigned i
 	for(i=0;i<a->size;i++) {
 		hl_socket *s= hl_aptr(a,hl_socket*)[i];
 		if( s== NULL ) break;
+#		ifndef HL_WIN
+		// FD_SET writes out of the set for a closed socket or a descriptor above the limit
+		if( s->sock < 0 || s->sock >= FD_SETSIZE ) return NULL;
+#		endif
 		if( s->sock > *max ) *max = (int)s->sock;
 		FD_SET(s->sock,set);
 	}
