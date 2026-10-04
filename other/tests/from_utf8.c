@@ -12,7 +12,12 @@ static int check( const char *name, const char *str, int outLen, int expected ) 
 	return 1;
 }
 
+// same entry point as hlc_main.c : on Windows the build is unicode (-municode with mingw)
+#ifdef HL_WIN_DESKTOP
+int wmain() {
+#else
 int main() {
+#endif
 	const char *s = "a\xF0\x9F\x98\x80" "b"; // a, U+1F600, b : 4 units
 	int err = 0;
 	err += check("whole string",s,4,4);
