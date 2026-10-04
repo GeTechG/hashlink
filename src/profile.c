@@ -98,6 +98,7 @@ typedef struct {
 static struct {
 	int sample_count;
 	volatile int profiling_pause;
+	volatile bool hasLoop;
 	volatile bool stopLoop;
 	volatile bool waitLoop;
 	thread_handle *handles;
@@ -233,9 +234,12 @@ static void record_data( void *ptr, int size ) {
 	profile_data *r = data.record;
 	if( !r || r->currentPos + size > r->dataSize ) {
 		r = malloc(sizeof(profile_data));
-		r->currentPos = 0;
-		r->dataSize = 1 << 20;
-		r->data = malloc(r->dataSize);
+		if( r ) {
+			r->currentPos = 0;
+			r->dataSize = size > (1 << 20) ? size : (1 << 20);
+			r->data = malloc(r->dataSize);
+		}
+		if( !r || !r->data ) hl_fatal("Out of memory");
 		r->next = NULL;
 		if( data.record )
 			data.record->next = r;
@@ -323,6 +327,12 @@ static void profile_pause() {
 	data.profiling_pause++;
 	hl_condition_broadcast(data.waitCond);
 	hl_condition_release(data.waitCond);
+}
+
+// pause and wait until the sampling thread, if there is one, is idle
+static void profile_pause_wait() {
+	profile_pause();
+	while( data.hasLoop && !data.waitLoop ) {}
 }
 
 static void profile_resume() {
@@ -434,6 +444,7 @@ static void hl_profile_loop( void *_ ) {
 	free(data.tmpMemory);
 	data.tmpMemory = NULL;
 	data.sample_count = 0;
+	data.hasLoop = false;
 	data.stopLoop = false;
 }
 
@@ -472,7 +483,11 @@ void hl_profile_setup( int sample_count ) {
 	action.sa_flags = SA_SIGINFO | SA_RESTART;
 	sigaction(SIGPROF, &action, NULL);
 #	endif
-	hl_thread_start(hl_profile_loop,NULL,false);
+	data.hasLoop = true;
+	if( !hl_thread_start(hl_profile_loop,NULL,false) ) {
+		data.sample_count = 0;
+		data.hasLoop = false;
+	}
 #	endif
 }
 
@@ -512,7 +527,7 @@ static int write_names( thread_handle *h, FILE *f ) {
 static void profile_dump( vbyte* ptr ) {
 	if( !data.first_record ) return;
 
-	profile_pause();
+	profile_pause_wait();
 	printf("Writing profiling data...\n");
 	fflush(stdout);
 
@@ -566,10 +581,12 @@ static void profile_dump( vbyte* ptr ) {
 			int size;
 			read_profile_data(&r,&size, sizeof(int));
 			fwrite(&size,1,4,f);
+			// the sampling thread owns data.tmpMemory, and it might not be running
 			while( size ) {
-				int k = size > MAX_STACK_SIZE ? MAX_STACK_SIZE : size;
-				read_profile_data(&r,data.tmpMemory,k);
-				fwrite(data.tmpMemory,1,k,f);
+				char buf[4096];
+				int k = size > (int)sizeof(buf) ? (int)sizeof(buf) : size;
+				read_profile_data(&r,buf,k);
+				fwrite(buf,1,k,f);
 				size -= k;
 			}
 		}
@@ -612,7 +629,7 @@ static void profile_dump( vbyte* ptr ) {
 
 void hl_profile_end() {
 	profile_dump(NULL);
-	if( !data.sample_count ) return;
+	if( !data.hasLoop ) return;
 	data.stopLoop = true;
 	hl_condition_acquire(data.waitCond);
 	data.profiling_pause = 0;
@@ -630,8 +647,7 @@ static void profile_event( int code, vbyte *ptr, int dataLen ) {
 		hl_get_thread()->flags &= ~HL_THREAD_PROFILER_PAUSED;
 		break;
 	case -3:
-		profile_pause();
-		while( !data.waitLoop ) {}
+		profile_pause_wait();
 		profile_data *d = data.first_record;
 		while( d ) {
 			profile_data *n = d->next;
@@ -662,10 +678,9 @@ static void profile_event( int code, vbyte *ptr, int dataLen ) {
 		hl_get_thread()->flags |= HL_THREAD_INVISIBLE;
 		break;
 	default:
-		if( code < 0 ) return;
+		if( code < 0 || dataLen < 0 ) return;
 		if( data.profiling_pause || (code != 0 && (hl_get_thread()->flags & HL_THREAD_PROFILER_PAUSED)) ) return;
-		profile_pause();
-		while( !data.waitLoop ) {}
+		profile_pause_wait();
 		double time = hl_sys_time();
 		record_data(&time,sizeof(double));
 		record_data(&hl_get_thread()->thread_id,sizeof(int));
