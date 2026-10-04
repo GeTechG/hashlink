@@ -1497,6 +1497,10 @@ void hl_codegen_function( jit_ctx *jit ) {
 		case CALL_REG:
 			EMIT(_CALL, e->a, UNUSED, M_NONE);
 			if( ctx->jit->mod->debug ) emit_mov(ctx, MK_ADDR(RSP,-HL_WSIZE), R(RBP), M_PTR);
+			if( e->mode == M_UI8 || e->mode == M_UI16 ) {
+				// clear value upper bits : the closure might be a native function
+				EMIT(e->mode == M_UI8 ? MOVZX8 : MOVZX16,R(RAX),R(RAX),M_PTR);
+			}
 			break;
 		case TEST:
 			if( IS_FLOAT(e->mode) )

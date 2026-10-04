@@ -309,6 +309,19 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # nativeclosure.hl
+
+    add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/nativeclosure.hl
+        COMMAND ${HAXE_COMPILER}
+            ${HAXE_HL_FLAGS}
+            -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/nativeclosure.hl
+            -cp ${CMAKE_SOURCE_DIR}/other/tests -main NativeClosure
+    )
+    add_custom_target(nativeclosure.hl ALL
+        DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/nativeclosure.hl
+    )
+
+    #####################
     # i64tofloat.hl
 
     add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/i64tofloat.hl
@@ -490,6 +503,9 @@ if(BUILD_TESTING)
         )
         add_test(NAME manyargs.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/manyargs.hl
+        )
+        add_test(NAME nativeclosure.hl
+            COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/nativeclosure.hl
         )
         add_test(NAME i64tofloat.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/i64tofloat.hl
