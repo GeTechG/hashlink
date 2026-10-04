@@ -729,6 +729,15 @@ static void compact_write_offset( mem_context *ctx, int position ) {
 
 #define BYTE_MARK 0x40000000
 
+static void compact_free( mem_context *ctx ) {
+	free(ctx->buf);
+	free(ctx->offsets);
+	free(ctx->remap_target);
+	free(ctx->todos);
+}
+
+#define compact_error(ctx, ...) { compact_free(ctx); hl_error(__VA_ARGS__); }
+
 static int compact_lookup_ref( mem_context *ctx, void *addr, bool is_bytes ) {
 	int *v = hl_mlookup_find(ctx->lookup, addr);
 	if( v )
@@ -793,10 +802,10 @@ static void compact_write_data( mem_context *ctx, hl_type *t, void *addr ) {
 		}
 		break;
 	case HABSTRACT:
-		hl_error("Unsupported abstract %s", t->abs_name);
+		compact_error(ctx,"Unsupported abstract %s", t->abs_name);
 		break;
 	default:
-		hl_error("Unsupported type %d", t->kind);
+		compact_error(ctx,"Unsupported type %d", t->kind);
 		break;
 	}
 }
@@ -860,14 +869,14 @@ static void compact_write_content( mem_context *ctx, vdynamic *d ) {
 				hl_type *ft = t->virt->fields[i].t;
 				compact_pad(ctx,ft);
 				if( !addr ) {
-					if( !hl_is_ptr(ft) ) hl_error("assert");
+					if( !hl_is_ptr(ft) ) compact_error(ctx,"assert");
 					compact_write_ptr(ctx,NULL);
 				} else
 					compact_write_data(ctx,ft,addr);
 			}
 		} else {
 			vdynobj *obj = (vdynobj*)v->value;
-			if( obj->t->kind != HDYNOBJ ) hl_error("assert");
+			if( obj->t->kind != HDYNOBJ ) compact_error(ctx,"assert");
 			int todo_save = ctx->todos_pos;
 			for(i=0;i<t->virt->nfields;i++) {
 				void *addr = ((void**)(v + 1))[i];
@@ -956,7 +965,7 @@ static void compact_write_content( mem_context *ctx, vdynamic *d ) {
 		break;
 	}
 	default:
-		hl_error("Unsupported type %d", t->kind);
+		compact_error(ctx,"Unsupported type %d", t->kind);
 	}
 }
 
@@ -984,7 +993,7 @@ HL_PRIM vdynamic *hl_mem_compact( vdynamic *d, varray *exclude, int flags, int *
 		ctx->remap_target[index&~BYTE_MARK] = ctx->buf_pos;
 		if( index & BYTE_MARK ) {
 			int size = hl_gc_get_memsize(addr);
-			if( size < 0 ) hl_error("assert");
+			if( size < 0 ) compact_error(ctx,"assert");
 			compact_write_mem(ctx, addr, size);
 		} else
 			compact_write_content(ctx, (vdynamic*)addr);
@@ -1012,10 +1021,7 @@ HL_PRIM vdynamic *hl_mem_compact( vdynamic *d, varray *exclude, int flags, int *
 		}
 		*(void**)(data+pos) = data + target;
 	}
-	free(ctx->buf);
-	free(ctx->offsets);
-	free(ctx->remap_target);
-	free(ctx->todos);
+	compact_free(ctx);
 #	if defined(HL_WIN) && !defined(HL_XBO)
 	if( flags & 1 ) {
 		DWORD old = 0;
