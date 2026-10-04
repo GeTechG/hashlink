@@ -95,7 +95,9 @@ static void hl_debug_loop() {
 			send(&m->code->nfunctions,4);
 			for(int j=0;j<m->code->nfunctions;j++) {
 				hl_function *f = m->code->functions + j;
-				hl_debug_infos *d = m->jit_debug + j;
+				// no debug infos for this module, or a function that was not recompiled (hot reload)
+				hl_debug_infos *d = m->jit_debug ? m->jit_debug + j : NULL;
+				bool has_infos = d && d->offsets;
 				struct {
 					int nops;
 					int start;
@@ -103,12 +105,20 @@ static void hl_debug_loop() {
 					unsigned char large;
 				} fdata;
 				fdata.nops = f->nops;
-				fdata.start = d->start;
-				fdata.vars_size = d->vars_size;
-				fdata.large = (unsigned char)d->large;
+				fdata.start = d ? d->start : -1;
+				fdata.vars_size = has_infos ? d->vars_size : 0;
+				fdata.large = (unsigned char)(has_infos && d->large);
 				send(&fdata,13);
-				send(d->offsets,(d->large ? sizeof(int) : sizeof(unsigned short)) * (f->nops + 1));
-				send(d->vars,d->vars_size);
+				int offsets_size = (int)(fdata.large ? sizeof(int) : sizeof(unsigned short)) * (f->nops + 1);
+				if( has_infos ) {
+					send(d->offsets,offsets_size);
+					send(d->vars,d->vars_size);
+				} else {
+					// the client still reads nops + 1 offsets
+					void *zeros = calloc(1,offsets_size);
+					send(zeros,offsets_size);
+					free(zeros);
+				}
 			}
 		}
 
