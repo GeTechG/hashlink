@@ -64,3 +64,4 @@ args.txt
 packages.config
 
 .serena
+/compile_commands.json
