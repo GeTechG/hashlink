@@ -33,5 +33,12 @@ The maintainer decides architecture and end-user behaviour, nothing else — ste
   - `haxe -hl src/_main.c -cp other/tests -main HelloWorld && make hlc && ./hlc` — HL/C path.
 - The full platform matrix is the upstream `Build` workflow (`.github/workflows/build.yml`); it runs on every push and PR.
 
+## Symbol navigation
+Serena (MCP server, C/C++ through `clangd`) is wired in `.mcp.json` for Claude Code and `.codex/config.toml` for Codex. A fresh checkout or worktree needs one command before it answers:
+
+- `bash .github/scripts/setup-serena.sh` — writes `compile_commands.json` from a dry run of the `Makefile` (nothing is built, SDL3 and the other libraries are not needed) and the Serena project in `.serena/`, pinned to the `clangd` on `PATH`. Both are git-ignored; the command is safe to repeat and is run again when the `Makefile` changes. It needs `clangd`, `serena` and `python3` on `PATH` and names the one that is missing.
+
+Only the C/C++ sources are indexed (`src/`, `libs/`, `include/`); the Haxe code under `other/` and `libs/*/` is not.
+
 ## Specs
 `openspec/` holds this fork's own specs (`openspec/specs/`). Behaviour or rule changes go through `openspec/changes/`.
