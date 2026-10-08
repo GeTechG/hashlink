@@ -51,6 +51,8 @@ Three tools, three questions:
 - **`ast-grep`** — where does code of this shape occur, whatever the names in it, and a bulk rewrite by pattern (add `-r '<replacement>'`, review the diff it prints, then `-U` to apply). The only structural tool for the Haxe code.
 - **Text search** — a literal string, a name inside a `#define` body, a comment or a string, a file that is neither C nor Haxe, and the cross-check of the other two.
 
+Look code up in that order: Serena → `ast-grep` → text search, the first that answers. Read a file directly only once one of them has located the spot, and then only the range you need — never a whole source file to see what is in it (the symbol overview of Serena answers that).
+
 A C pattern is written with its surroundings: a bare fragment is parsed as a top-level declaration, not as the expression it looks like, and silently matches nothing (`-p 'hl_alloc_dynamic($A)' -l c` finds 0). Give a whole function as the pattern and select the node meant:
 
 - `.ast-grep/ast-grep run -p 'void f() { hl_alloc_dynamic($A); }' --selector call_expression -l c src libs` — the 14 calls. In a rule file the same is `pattern: {context: 'void f() { hl_alloc_dynamic($A); }', selector: call_expression}`. `-l c` covers `.c` and `.h`; the `.cpp` files need a second run with `-l cpp`.
