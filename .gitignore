@@ -65,3 +65,4 @@ packages.config
 
 .serena
 /compile_commands.json
+/.ast-grep
