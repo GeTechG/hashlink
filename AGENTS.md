@@ -40,5 +40,23 @@ Serena (MCP server, C/C++ through `clangd`) is wired in `.mcp.json` for Claude C
 
 Only the C/C++ sources are indexed (`src/`, `libs/`, `include/`); the Haxe code under `other/` and `libs/*/` is not.
 
+## Structural search
+`ast-grep` searches and rewrites code by shape: C and C++ with its built-in grammars, Haxe (`other/`, `libs/*/`) with the grammar `sgconfig.yml` loads. A fresh checkout or worktree needs one command:
+
+- `bash .github/scripts/setup-ast-grep.sh` — links the pinned `ast-grep` and the Haxe grammar (`GeTechG/tree-sitter-haxe`) into the git-ignored `.ast-grep/`; version, checksum and grammar commit are pinned in the script, the downloads live in `~/.cache` and are shared by every checkout. Linux x86_64 only; it needs `curl`, `sha256sum`, `tar`, `git` and `cc`. Run `.ast-grep/ast-grep` from the repo root.
+
+Three tools, three questions:
+
+- **Serena** — where is this C/C++ symbol defined and who references it; what a rename touches. It sees through macros and knows types; it knows no Haxe.
+- **`ast-grep`** — where does code of this shape occur, whatever the names in it, and a bulk rewrite by pattern (add `-r '<replacement>'`, review the diff it prints, then `-U` to apply). The only structural tool for the Haxe code.
+- **Text search** — a literal string, a name inside a `#define` body, a comment or a string, a file that is neither C nor Haxe, and the cross-check of the other two.
+
+A C pattern is written with its surroundings: a bare fragment is parsed as a top-level declaration, not as the expression it looks like, and silently matches nothing (`-p 'hl_alloc_dynamic($A)' -l c` finds 0). Give a whole function as the pattern and select the node meant:
+
+- `.ast-grep/ast-grep run -p 'void f() { hl_alloc_dynamic($A); }' --selector call_expression -l c src libs` — the 14 calls. In a rule file the same is `pattern: {context: 'void f() { hl_alloc_dynamic($A); }', selector: call_expression}`. `-l c` covers `.c` and `.h`; the `.cpp` files need a second run with `-l cpp`.
+- `.ast-grep/ast-grep run -p 'throw $E' -l haxe .` — Haxe patterns need no context.
+
+When a pattern matches nothing, look at how it was parsed (`--debug-query=ast`) before believing the zero. What a structural search does not see: the body of a `#define` (the grammar keeps it as text, so `hl_error(…)` inside a macro is found only by a text search), and possibly code in a file the grammar could not parse cleanly — `.ast-grep/ast-grep run --kind ERROR -l c src libs` lists them (the `HL_PRIM`/`DEFINE_PRIM` macros do that to many), `-l haxe .` lists none today. Before acting on a count, compare it with a text search and explain each difference.
+
 ## Specs
 `openspec/` holds this fork's own specs (`openspec/specs/`). Behaviour or rule changes go through `openspec/changes/`.

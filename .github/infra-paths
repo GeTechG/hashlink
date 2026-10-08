@@ -7,4 +7,5 @@ openspec/
 .github/scripts/
 .github/workflows/ci.yml
 .mcp.json
+sgconfig.yml
 .codex/

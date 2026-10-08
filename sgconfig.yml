@@ -1,0 +1,7 @@
+# ast-grep on this fork: search and rewrite by code shape (see AGENTS.md, Structural search).
+# C and C++ use ast-grep's built-in grammars. Haxe (tests, library bindings) uses GeTechG/tree-sitter-haxe:
+# .github/scripts/setup-ast-grep.sh pins its commit, builds it and links it here, next to the pinned binary.
+customLanguages:
+  haxe:
+    libraryPath: .ast-grep/haxe.so
+    extensions: [hx]
