@@ -141,16 +141,22 @@ static const char *hl_read_string( hl_reader *r ) {
 	return r->code->strings[i];
 }
 
+// the string can contain NUL chars : each NUL separated part is converted, up to the stored length
+// size of the converted string in uchars, terminator included
+static int hl_ustring_size( hl_code *code, int index ) {
+	const char *s = code->strings[index], *end = s + code->strings_lens[index], *p;
+	int size = 0;
+	for( p = s; p <= end; p += strlen(p) + 1 )
+		size += hl_utf8_length((vbyte*)p,0) + 1;
+	return size;
+}
+
 const uchar *hl_get_ustring( hl_code *code, int index ) {
 	uchar *str = code->ustrings[index];
 	if( str == NULL ) {
-		// the string can contain NUL chars : convert each NUL separated part, up to its stored length
 		const char *s = code->strings[index], *end = s + code->strings_lens[index], *p;
-		uchar *out;
-		int size = 0;
-		for( p = s; p <= end; p += strlen(p) + 1 )
-			size += hl_utf8_length((vbyte*)p,0) + 1;
-		out = str = hl_malloc(&code->alloc,size<<1);
+		// zeroed : an invalid utf8 part can be converted to less chars than its size
+		uchar *out = str = hl_zalloc(&code->alloc,hl_ustring_size(code,index)<<1);
 		for( p = s; p <= end; p += strlen(p) + 1 )
 			out += hl_from_utf8(out,hl_utf8_length((vbyte*)p,0),p) + 1;
 		code->ustrings[index] = str;
@@ -874,6 +880,11 @@ static void hl_read_constant( hl_reader *r, hl_constant *k ) {
 		}
 		if( k->fields[j] >= max ) ERROR("Invalid constant field");
 	}
+	if( r->error ) return;
+	// bytes followed by a length (String) : the length must not exceed the converted string
+	for(j=0;j<k->nfields-1;j++)
+		if( t->obj->fields[j].t->kind == HBYTES && t->obj->fields[j+1].t->kind == HI32 && (unsigned)c->ints[k->fields[j+1]] >= (unsigned)hl_ustring_size(c,k->fields[j]) )
+			ERROR("Invalid constant string");
 }
 
 hl_code *hl_code_read( const unsigned char *data, int size, char **error_msg ) {
