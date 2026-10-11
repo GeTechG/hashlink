@@ -1,6 +1,7 @@
 ## 1. Runtime
 
 - [x] 1.1 `hl_get_ustring` in `src/code.c`: convert `strings_lens[index]` bytes instead of stopping at the first NUL
+- [x] 1.2 `hl_read_strings`: two zero bytes after the string data, so the decoding of an invalid string stays inside it
 
 ## 2. Verification
 

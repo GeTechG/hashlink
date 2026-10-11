@@ -5,6 +5,7 @@ The file is correct (bytes and length are both there), so the fix belongs to the
 
 ## What Changes
 - `hl_get_ustring` converts the whole string constant, `strings_lens[index]` bytes, NUL characters included.
+- `hl_read_strings` pads the string data with two zero bytes: the UTF-8 decoding of an invalid string reads up to two bytes after its terminator, and with the change above that can be the last bytes of the data.
 - No change for a string without NUL.
 
 ## Capabilities
@@ -15,4 +16,4 @@ The file is correct (bytes and length are both there), so the fix belongs to the
 ### Modified Capabilities
 
 ## Impact
-- `src/code.c` (`hl_get_ustring`).
+- `src/code.c` (`hl_get_ustring`, `hl_read_strings`).
