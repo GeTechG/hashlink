@@ -144,9 +144,15 @@ static const char *hl_read_string( hl_reader *r ) {
 const uchar *hl_get_ustring( hl_code *code, int index ) {
 	uchar *str = code->ustrings[index];
 	if( str == NULL ) {
-		int size = hl_utf8_length((vbyte*)code->strings[index],0);
-		str = hl_malloc(&code->alloc,(size+1)<<1);
-		hl_from_utf8(str,size,code->strings[index]);
+		// the string can contain NUL chars : convert each NUL separated part, up to its stored length
+		const char *s = code->strings[index], *end = s + code->strings_lens[index], *p;
+		uchar *out;
+		int size = 0;
+		for( p = s; p <= end; p += strlen(p) + 1 )
+			size += hl_utf8_length((vbyte*)p,0) + 1;
+		out = str = hl_malloc(&code->alloc,size<<1);
+		for( p = s; p <= end; p += strlen(p) + 1 )
+			out += hl_from_utf8(out,hl_utf8_length((vbyte*)p,0),p) + 1;
 		code->ustrings[index] = str;
 	}
 	return str;
@@ -442,8 +448,10 @@ static char **hl_read_strings( hl_reader *r, int nstrings, int **out_lens ) {
 		ERROR("Invalid strings size");
 		return NULL;
 	}
-	sdata = sbase = (char*)hl_malloc(&c->alloc,sizeof(char) * size);
+	// two extra bytes : the utf8 decoding of an invalid string reads up to two bytes after its terminator
+	sdata = sbase = (char*)hl_malloc(&c->alloc,sizeof(char) * (size + 2));
 	hl_read_bytes(r, sdata, size);
+	sdata[size] = sdata[size + 1] = 0;
 	ALLOC(strings, char*, nstrings);
 	ALLOC(lens, int, nstrings);
 	for(i=0;i<nstrings;i++) {
