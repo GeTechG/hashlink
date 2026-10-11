@@ -5,7 +5,7 @@ Refusing every string that is not valid UTF-8 in `hl_read_strings` is not an opt
 
 ## What Changes
 - `hl_code_read` refuses a file with `Invalid constant string` when a constant has a bytes field followed by an int field — the layout of `String`, the only constant the compiler writes — and the int is negative or larger than the number of UTF-16 code units the bytes decode to.
-- `hl_get_ustring` zero-fills the buffer: the decoder leaves the last code unit unwritten when a part ends with a byte `>= 0xF8`, and the check above counts it.
+- `hl_get_ustring` zero-fills the buffer: `hl_utf8_length` counts a byte `>= 0xF8` that ends a part and `hl_from_utf8` writes nothing for it, so that code unit is part of the buffer the check above measures. The check is about bounds, not about UTF-8: such a constant is accepted and reads a zero there.
 - No change for a string that is not part of a constant: it is decoded up to the first invalid sequence, as before, and its length is taken from its terminator.
 
 ## Capabilities
