@@ -760,7 +760,12 @@ static void hl_check_function( hl_reader *r, hl_function *f, const char *funs ) 
 		case OSetField:
 			REG(o->p1);
 			REG(o->p3);
-			FIELD(hl_check_field(f->regs[o->p1],o->p2,false));
+			if( !hl_check_field(f->regs[o->p1],o->p2,false) ) {
+				// the compiler sets the fields of a resource by rank, also the ones its DCE has removed : nothing reads them
+				hl_type *t = f->regs[o->p1];
+				FIELD(t->kind == HOBJ && o->p2 > 0 && ucmp(t->obj->name,USTR("haxe._Resource.ResourceContent")) == 0);
+				o->op = ONop;
+			}
 			break;
 		case OGetThis:
 			REG(o->p1);
