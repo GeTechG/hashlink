@@ -611,14 +611,21 @@ jobs:
     needs: [build, haxe-test-suite]
     if: github.ref == 'refs/heads/master'
     concurrency: publish-latest-release # https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idconcurrency
+    permissions:
+      contents: write # create the release, also where the default token is read-only
+      actions: read # gh run download
 
     steps:
 
     - name: "SCM Checkout"
       uses: actions/checkout@v7
 
+    # not actions/download-artifact: its streaming unzip takes a data descriptor
+    # signature inside a packaged zip for the end of the entry and fails
     - name: "Get: all build artifacts"
-      uses: actions/download-artifact@v8
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: gh run download "$GITHUB_RUN_ID"
 
     - name: "Delete previous 'latest' release"
       env:
