@@ -71,6 +71,10 @@ static JNIEnv* hl_android_jni_get_env(void)
 {
 	/* Always try to attach if calling from a non-attached thread */
 	JNIEnv *env;
+	if (!hl_java_vm) {
+		LOGE("JNI_OnLoad was not called");
+		return 0;
+	}
 	if((*hl_java_vm)->AttachCurrentThread(hl_java_vm, &env, NULL) < 0) {
 		LOGE("failed to attach current thread");
 		return 0;
@@ -100,10 +104,17 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 	/* Make sure we are attached (we should) and setup pthread destructor */
 	env = hl_android_jni_get_env();
 
-	/* Try to retrieve local reference to our Activity class */
+	/* Try to retrieve local reference to our Activity class, or to the SDL one it extends */
 	cls = (*env)->FindClass(env, HL_ANDROID_ACTIVITY);
 	if (!cls) {
+		(*env)->ExceptionClear(env);
+		cls = (*env)->FindClass(env, "org/libsdl/app/SDLActivity");
+	}
+	if (!cls) {
+		/* A pending exception would be thrown by System.loadLibrary() : load without the storage paths */
+		(*env)->ExceptionClear(env);
 		__android_log_print(ANDROID_LOG_ERROR, HL_JNI_LOG_TAG, "Error cannot find HashLink Activity class");
+		return JNI_VERSION_1_4;
 	}
 
 	/* Create a global reference for our Activity class */
@@ -112,6 +123,12 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
 	/* Retrieve the getContext() method id */
 	hl_java_method_id_get_context = (*env)->GetStaticMethodID(env, hl_java_activity_class, "getContext","()Landroid/content/Context;");
 	if (!hl_java_method_id_get_context) {
+		/* SDL3 declares it as returning the Activity */
+		(*env)->ExceptionClear(env);
+		hl_java_method_id_get_context = (*env)->GetStaticMethodID(env, hl_java_activity_class, "getContext","()Landroid/app/Activity;");
+	}
+	if (!hl_java_method_id_get_context) {
+		(*env)->ExceptionClear(env);
 		__android_log_print(ANDROID_LOG_ERROR, HL_JNI_LOG_TAG, "Error cannot get getContext() method on specified Activity class (not an Activity ?)");
 	}
 
@@ -176,6 +193,11 @@ static char* hl_sys_android_get_absolute_path_from(const char* method, const cha
 			return NULL;
 		}
 
+		if (!hl_java_method_id_get_context) {
+			LOGE("No Activity class to get the context from");
+			return NULL;
+		}
+
 		context = (*env)->CallStaticObjectMethod(env, hl_java_activity_class, hl_java_method_id_get_context);
 		if (!context) {
 			LOGE("Couldn't get Android context!");
@@ -183,6 +205,11 @@ static char* hl_sys_android_get_absolute_path_from(const char* method, const cha
 		}
 
 		mid = (*env)->GetMethodID(env, (*env)->GetObjectClass(env, context), method, signature);
+		if (!mid) {
+			(*env)->ExceptionClear(env);
+			LOGE("Couldn't find %s%s on the specified context", method, signature);
+			return NULL;
+		}
 		fileObject = (*env)->CallObjectMethod(env, context, mid, NULL);
 		if (!fileObject) {
 			LOGE("Couldn't call %s%s on the specified context", method, signature);
@@ -221,7 +248,7 @@ static const char* hl_sys_android_get_internal_storage_path(void)
 {
 	/* Internal storage is always available */
 	if (!hl_android_internal_files_path) {
-		hl_android_internal_files_path = hl_sys_android_get_absolute_path_from("getFilesDir", "(Ljava/lang/String;)Ljava/io/File;");
+		hl_android_internal_files_path = hl_sys_android_get_absolute_path_from("getFilesDir", "()Ljava/io/File;");
 	}
 
 	return hl_android_internal_files_path;
