@@ -1,6 +1,6 @@
 ## 1. Code
 
-- [x] 1.1 `src/hlc_main.c`: include `<SDL3/SDL_main.h>` on a mobile target when the header is found
+- [x] 1.1 `src/hlc_main.c`: include `<SDL3/SDL_main.h>` on Android when the header is found
 - [x] 1.2 `libs/sdl/sdl.c`: `win_create_ex` does not start text input on a mobile target
 - [x] 1.3 `libs/fmt/CMakeLists.txt`: pass `CMAKE_MAKE_PROGRAM` to the sub-builds
 - [x] 1.4 `src/std/sys_android.c`: `JNI_OnLoad` falls back to SDL's activity and clears failed lookups; `getContext()` of SDL3; `getFilesDir()` with its real signature; `NULL` paths without a VM, a class or a method

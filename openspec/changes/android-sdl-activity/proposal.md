@@ -7,7 +7,7 @@ An HL/C application built for Android with the NDK and CMake (`add_subdirectory`
 4. `JNI_OnLoad` of `src/std/sys_android.c` looks up the class `org/haxe/HashLinkActivity` and goes on with a null class when there is none: under SDL's activity the library fails while it is loaded. A statically linked `libhl` hides that today only because the linker leaves `sys_android.c` out of a program that does not call `sys_special`. Two more faults sit behind it: SDL3 declares `SDLActivity.getContext()` as returning `Activity`, not `Context`, so the method lookup fails too; and the internal path is asked from `getFilesDir(String)`, a method `Context` does not have (it takes no argument), which aborts the process in JNI.
 
 ## What Changes
-- `hlc_main.c`: on a mobile target `<SDL3/SDL_main.h>` is included whenever the compiler can find it, so the entry point is `SDL_main`. An application that does not want that defines `SDL_MAIN_HANDLED`. The `sdl__Sdl__val` test stays for an SDL2 header layout.
+- `hlc_main.c`: on Android `<SDL3/SDL_main.h>` is included whenever the compiler can find it, so the entry point is `SDL_main`. An application that does not want that defines `SDL_MAIN_HANDLED`. The `sdl__Sdl__val` test stays as it was for the other cases (iOS and tvOS, an SDL2 header layout): on iOS the SDL3 header also defines a `main` that calls `SDL_RunApp`, which is not something to switch on without a build that shows it works.
 - `sdl.c`: a new window starts text input only when the target is not mobile. The application opens the keyboard with `Window.startTextInput()`.
 - `libs/fmt/CMakeLists.txt`: the sub-builds get `CMAKE_MAKE_PROGRAM` of the parent build.
 - `sys_android.c`: `JNI_OnLoad` falls back to `org/libsdl/app/SDLActivity` when the class `HL_ANDROID_ACTIVITY` names does not exist, accepts `getContext()` declared with either return type, calls `getFilesDir()` with its real signature, and leaves no pending Java exception. Without either class, or without a Java VM, the storage paths are `NULL` instead of a crash.
@@ -23,4 +23,4 @@ An HL/C application built for Android with the NDK and CMake (`add_subdirectory`
 ## Impact
 - `src/hlc_main.c`, `libs/sdl/sdl.c`, `libs/fmt/CMakeLists.txt`, `src/std/sys_android.c`.
 - A mobile application that relied on the keyboard opening with the window has to call `Window.startTextInput()`. Desktop targets are unchanged.
-- A mobile HL/C application that has the SDL3 headers on its include path and its own `main` handling defines `SDL_MAIN_HANDLED`.
+- An Android HL/C application that has the SDL3 headers on its include path and its own `main` handling defines `SDL_MAIN_HANDLED`.

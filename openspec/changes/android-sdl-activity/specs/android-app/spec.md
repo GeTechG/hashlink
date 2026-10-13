@@ -1,15 +1,15 @@
 ## ADDED Requirements
 
-### Requirement: The entry point of an HL/C application on a mobile target is the one SDL expects
-`hlc_main.c` SHALL include `<SDL3/SDL_main.h>` on a mobile target when the compiler finds that header, so that the function it defines is the entry point SDL's launcher calls. An application that defines `SDL_MAIN_HANDLED` keeps the name `main`.
+### Requirement: The entry point of an HL/C application on Android is the one SDL expects
+`hlc_main.c` SHALL include `<SDL3/SDL_main.h>` on Android when the compiler finds that header, so that the function it defines is the entry point SDL's launcher calls. An application that defines `SDL_MAIN_HANDLED` keeps the name `main`.
 
 #### Scenario: Application under SDL's activity
 - **WHEN** an HL/C application is built for Android with the SDL3 headers on its include path and loaded by `org.libsdl.app.SDLActivity`
 - **THEN** its library exports `SDL_main` and the activity starts the program, with no definition added by the application
 
-#### Scenario: Desktop target
-- **WHEN** an HL/C application is built for a desktop target
-- **THEN** its entry point is `main` (`wmain` on Windows) as before
+#### Scenario: Other targets
+- **WHEN** an HL/C application is built for a desktop target, iOS or tvOS
+- **THEN** its entry point is what it was before: `main` (`wmain` on Windows), and on a mobile target `<SDL_main.h>` is included only when `sdl__Sdl__val` is defined
 
 ### Requirement: A new window does not open the on-screen keyboard
 On a mobile target `sdl.hdll` SHALL NOT start text input when it creates a window; text input starts when the application asks for it. On the other targets a new window starts text input.
