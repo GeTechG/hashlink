@@ -656,8 +656,10 @@ HL_PRIM SDL_Window *HL_NAME(win_create_ex)(int x, int y, int width, int height, 
 	SDL_RaiseWindow(win); // better first focus lost behavior
 #	endif
 
-	// SDL2 compat
+#	ifndef HL_MOBILE
+	// SDL2 compat : not with an on-screen keyboard, it would open with the window
 	SDL_StartTextInput(win);
+#	endif
 	return win;
 }
 

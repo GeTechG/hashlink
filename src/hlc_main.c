@@ -21,8 +21,15 @@
  */
 #include <hlc.h>
 
-#if defined(HL_MOBILE) && defined(sdl__Sdl__val)
-#   include <SDL_main.h>
+#ifdef HL_ANDROID
+// SDL's activity calls SDL_main : define SDL_MAIN_HANDLED to keep main
+#	if __has_include(<SDL3/SDL_main.h>)
+#		include <SDL3/SDL_main.h>
+#	elif defined(sdl__Sdl__val)
+#		include <SDL_main.h>
+#	endif
+#elif defined(HL_MOBILE) && defined(sdl__Sdl__val)
+#	include <SDL_main.h>
 #endif
 
 #if defined(HL_WIN_DESKTOP) || defined(HL_XBS)
