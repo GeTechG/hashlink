@@ -32,7 +32,7 @@ The sub-builds CMake starts for the third-party dependencies of `fmt.hdll` SHALL
 ### Requirement: The Java VM reaches a statically linked runtime that uses it
 A program that calls `sys_special` and links `libhl` statically SHALL have the `JNI_OnLoad` of the runtime in its own library, without a link option of its own. A program that does not call `sys_special` MAY have no `JNI_OnLoad` from the runtime.
 
-`JNI_OnLoad` SHALL take the application context from the class `HL_ANDROID_ACTIVITY` names and, when there is no such class, from `org/libsdl/app/SDLActivity`. It SHALL NOT return with a Java exception pending. When neither class exists, or the library was loaded without `JNI_OnLoad` being called, the storage paths of `sys_special` SHALL be `NULL`.
+`JNI_OnLoad` SHALL take the application context from the class `HL_ANDROID_ACTIVITY` names and, when there is no such class, from `org/libsdl/app/SDLActivity`. The method `getContext()` of that class MAY be declared as returning `Context` (SDL2) or `Activity` (SDL3). `JNI_OnLoad` SHALL NOT return with a Java exception pending. When neither class exists, or the library was loaded without `JNI_OnLoad` being called, the storage paths of `sys_special` SHALL be `NULL`.
 
 #### Scenario: Storage path under SDL's activity
 - **WHEN** a statically linked HL/C application started by `org.libsdl.app.SDLActivity`, with no class `org.haxe.HashLinkActivity`, asks `sys_special` for `android_internal_storage_path`
