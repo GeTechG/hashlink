@@ -48,10 +48,16 @@ Only the C/C++ sources are indexed (`src/`, `libs/`, `include/`); the Haxe code 
 Three tools, three questions:
 
 - **Serena** — where is this C/C++ symbol defined and who references it; what a rename touches. It sees through macros and knows types; it knows no Haxe.
-- **`ast-grep`** — where does code of this shape occur, whatever the names in it, and a bulk rewrite by pattern (add `-r '<replacement>'`, review the diff it prints, then `-U` to apply). The only structural tool for the Haxe code.
 - **Text search** — a literal string, a name inside a `#define` body, a comment or a string, a file that is neither C nor Haxe, and the cross-check of the other two.
+- **`ast-grep`** — a bulk rewrite by pattern, instead of `sed -i` (add `-r '<replacement>'`, review the diff it prints, then `-U` to apply), and where code of a given shape occurs, whatever the names in it — the question neither a symbol nor a string names. The only structural tool for the Haxe code.
 
-Look code up in that order: Serena → `ast-grep` → text search, the first that answers. Read a file directly only once one of them has located the spot, and then only the range you need — never a whole source file to see what is in it (the symbol overview of Serena answers that).
+Look code up in this order: Serena → text search, the first that answers. `ast-grep` is not a step of that order: nearly every lookup is a symbol or a literal string, so take it only for the two jobs above. Read a file directly only once one of them has located the spot, and then only the range you need — never a whole source file to see what is in it.
+
+Read C/C++ code with Serena, not with a file dump or a grep:
+
+- the body of a function or a struct — `find_symbol` with `include_body`;
+- what a file holds — `get_symbols_overview`;
+- who uses a name — `find_referencing_symbols`, not a grep for the identifier.
 
 A C pattern is written with its surroundings: a bare fragment is parsed as a top-level declaration, not as the expression it looks like, and silently matches nothing (`-p 'hl_alloc_dynamic($A)' -l c` finds 0). Give a whole function as the pattern and select the node meant:
 
