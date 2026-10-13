@@ -136,6 +136,9 @@ if(WIN32)
 elseif(DOWNLOAD_DEPENDENCIES)
     find_package(ZLIB REQUIRED)
 
+    # the sub-builds get our generator but not its program, which might not be on PATH (Gradle's ninja)
+    list(APPEND CMAKE_COMMON_DEP_ARGS -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM})
+
 	ExternalProject_Add(turbojpeg-project
         URL https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.1/libjpeg-turbo-3.1.1.tar.gz
         URL_HASH SHA256=aadc97ea91f6ef078b0ae3a62bba69e008d9a7db19b34e4ac973b19b71b4217c
