@@ -1,7 +1,7 @@
 # openal-static Specification
 
 ## Purpose
-What `openal.hdll` built against a static OpenAL-soft needs from that library: it links to the release `libs/openal/CMakeLists.txt` pins, and an extension function the release does not provide is looked up at run time and throws when called.
+What `openal.hdll` built against a static OpenAL-soft needs from that library: it links to the release `libs/openal/CMakeLists.txt` pins, an extension function the release does not provide is looked up at run time and throws when called, and on Android the library has a playback backend.
 
 ## Requirements
 
@@ -29,3 +29,18 @@ The fork's `CI` workflow SHALL build, on every push to `master` and every pull r
 #### Scenario: openal.hdll links
 - **WHEN** every `al*` and `alc*` symbol `openal.c` references is exported by the pinned OpenAL-soft
 - **THEN** the job passes
+
+### Requirement: OpenAL-soft for Android has a playback backend
+The OpenAL-soft that `libs/openal/CMakeLists.txt` fetches with `DOWNLOAD_DEPENDENCIES` SHALL, when built for Android, include the OpenSL ES playback backend, which loads the system `libOpenSLES.so` at run time, also with `WITH_STATIC_OPENAL=ON`. A configuration that cannot enable it SHALL fail.
+
+#### Scenario: Static OpenAL-soft for Android
+- **WHEN** `openal.hdll` is configured for Android with `DOWNLOAD_DEPENDENCIES` and `WITH_STATIC_OPENAL=ON`
+- **THEN** OpenAL-soft lists OpenSL among its enabled backends and `openal.hdll` links
+
+#### Scenario: Sound on a device
+- **WHEN** a program linked to that OpenAL-soft calls `alcOpenDevice(NULL)` on an Android device
+- **THEN** it gets a device, not `No playback backend available!`
+
+#### Scenario: OpenSL ES not found
+- **WHEN** the OpenSL ES library or headers are not found while configuring for Android
+- **THEN** the configure fails with "Failed to enable required OpenSL backend"

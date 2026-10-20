@@ -13,5 +13,5 @@
 - `openal-static`: the OpenAL-soft fetched for Android has the OpenSL ES playback backend, or the configure fails.
 
 ## Impact
-- `libs/openal/CMakeLists.txt` (code). `libopenal.a` for Android gains `alc/backends/opensl.cpp`; whatever links it links `libOpenSLES.so` (an NDK system library, API 9+).
+- `libs/openal/CMakeLists.txt` (code). `libopenal.a` for Android gains `alc/backends/opensl.cpp`, which `dlopen`s the system `libOpenSLES.so` at run time; nothing new to link.
 - The `android-openal-static` CI job configures the same way, so it now also fails when OpenSL ES is not found.
