@@ -63,6 +63,10 @@ endif()
 
 # add_subdirectory(mesa)
 
+if(WITH_HARFBUZZ)
+    add_subdirectory(harfbuzz)
+endif()
+
 option(WITH_OPENAL "Build openal.hdll." ON)
 if(WITH_OPENAL)
     add_subdirectory(openal)

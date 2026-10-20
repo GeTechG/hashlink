@@ -1,0 +1,10 @@
+{
+	"name" : "hlharfbuzz",
+	"url" : "https://github.com/HaxeFoundation/hl/tree/master/libs/harfbuzz",
+	"license" : "BSD",
+	"contributors" : ["ncannasse"],
+	"description" : "HarfBuzz text shaping for Haxe/HL.",
+	"version" : "1.0.0",
+	"releasenote" : "",
+	"dependencies": {}
+}
