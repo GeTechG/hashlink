@@ -2,6 +2,8 @@ add_library(openal.hdll openal.c)
 
 option(WITH_STATIC_OPENAL "Link openal.hdll to static openal-soft" OFF)
 
+set(OPENAL_DEFAULT_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
+
 if (WITH_STATIC_OPENAL)
     target_compile_definitions(openal.hdll PRIVATE OPENAL_STATIC)
     set(CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_STATIC_LIBRARY_SUFFIX})
@@ -37,6 +39,11 @@ elseif(DOWNLOAD_DEPENDENCIES)
     set(ALSOFT_UTILS OFF CACHE INTERNAL "")
     if (WITH_STATIC_OPENAL)
         set(LIBTYPE STATIC)
+    endif()
+    # OpenAL-soft links its system libraries (OpenSLES on Android) as shared ones
+    set(CMAKE_FIND_LIBRARY_SUFFIXES ${OPENAL_DEFAULT_FIND_LIBRARY_SUFFIXES})
+    if (ANDROID)
+        set(ALSOFT_REQUIRE_OPENSL ON CACHE INTERNAL "")
     endif()
 
     FetchContent_MakeAvailable(openal-soft)
