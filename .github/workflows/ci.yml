@@ -24,3 +24,21 @@ jobs:
             range="${{ github.sha }}^..${{ github.sha }}"
           fi
           bash .github/scripts/check-commit-kinds.sh "$range"
+
+  android-openal-static:
+    # The upstream build-android job builds static archives that nothing links, so an
+    # undefined symbol in openal.hdll goes unnoticed. Here openal.hdll is a shared library
+    # linked with -Wl,--no-undefined (set_as_hdll) to the static OpenAL-soft, as in an
+    # Android HL/C application.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: openal.hdll links to static OpenAL-soft
+        run: |
+          set -ex
+          cmake -B build -G Ninja --toolchain "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_PLATFORM=24 -DANDROID_ABI=arm64-v8a -DBUILD_SHARED_LIBS=ON -DWITH_VM=OFF \
+            -DWITH_STATIC_OPENAL=ON \
+            -DWITH_FMT=OFF -DWITH_SDL=OFF -DWITH_SQLITE=OFF -DWITH_SSL=OFF -DWITH_UI=OFF \
+            -DWITH_UV=OFF -DWITH_VIDEO=OFF -DWITH_HEAPS=OFF -DWITH_HARFBUZZ=OFF -DWITH_OPUS=OFF
+          cmake --build build --target openal.hdll
