@@ -236,10 +236,21 @@ HL_PRIM int HL_NAME(al_get_error)() {
 
 // Extension support
 
+#if defined(OPENAL_STATIC) && defined(AL_EXT_FOLDBACK)
+// declared by alext.h but not exported by recent OpenAL-soft releases
+static LPALREQUESTFOLDBACKSTART hl_alRequestFoldbackStart = NULL;
+static LPALREQUESTFOLDBACKSTOP hl_alRequestFoldbackStop = NULL;
+#define alRequestFoldbackStart hl_alRequestFoldbackStart
+#define alRequestFoldbackStop hl_alRequestFoldbackStop
+#endif
+
 #define AL_IMPORT(fun,t) fun = (t)alGetProcAddress(#fun)
 HL_PRIM void HL_NAME(al_load_extensions)() {
 #ifndef OPENAL_STATIC
 #	include "ALImports.h"
+#elif defined(AL_EXT_FOLDBACK)
+	AL_IMPORT(alRequestFoldbackStart, LPALREQUESTFOLDBACKSTART);
+	AL_IMPORT(alRequestFoldbackStop, LPALREQUESTFOLDBACKSTOP);
 #endif
 }
 
