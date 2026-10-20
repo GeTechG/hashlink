@@ -15,4 +15,4 @@
 - [x] 3.2 Android NDK build (arm64-v8a and x86_64, static, as the `Build` workflow); the HL/C test run on the emulator (x86_64)
 - [x] 3.3 Binary size measured and written in `design.md`
 - [x] 3.4 `make`, `HelloWorld` in bytecode and in HL/C
-- [ ] 3.5 Cross-review of the branch diff
+- [x] 3.5 Cross-review of the branch diff (codex, 2 rounds: overflow guard on the glyph copy, default on only with CMake 3.18+; clean)
