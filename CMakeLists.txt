@@ -32,6 +32,8 @@ else()
     set(WITH_HARFBUZZ_DEFAULT ON)
 endif()
 option(WITH_HARFBUZZ "Build harfbuzz.hdll." ${WITH_HARFBUZZ_DEFAULT})
+# the same for the Opus decoder of fmt.hdll
+option(WITH_OPUS "Build Ogg Opus decoding into fmt.hdll." ${WITH_HARFBUZZ_DEFAULT})
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 if(BUILD_SHARED_LIBS)
     # ensure third-party static libs are built with PIC
@@ -509,6 +511,25 @@ if(BUILD_TESTING)
     endif()
 
     #####################
+    # opustest.hl
+
+    # WITH_FMT is declared in libs/, after the tests: undefined means its default, on
+    if(WITH_OPUS AND (NOT DEFINED WITH_FMT OR WITH_FMT))
+        set(OPUS_TESTS ON)
+    endif()
+    if(OPUS_TESTS)
+        add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/opustest.hl
+            COMMAND ${HAXE_COMPILER}
+                ${HAXE_HL_FLAGS}
+                -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/opustest.hl
+                -cp ${CMAKE_SOURCE_DIR}/other/tests -main OpusTest
+        )
+        add_custom_target(opustest.hl ALL
+            DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/opustest.hl
+        )
+    endif()
+
+    #####################
     # hello.c
 
     add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/hello/hello.c
@@ -628,6 +649,32 @@ if(BUILD_TESTING)
     endif()
 
     #####################
+    # opustest.c
+
+    if(OPUS_TESTS)
+        add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/opustest/opustest.c
+            COMMAND ${HAXE_COMPILER}
+                -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/opustest/opustest.c
+                -cp ${CMAKE_SOURCE_DIR}/other/tests -main OpusTest
+        )
+        add_executable(opustest
+            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/opustest/opustest.c
+        )
+        set_target_properties(opustest
+            PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/opustest
+        )
+        target_include_directories(opustest
+            PRIVATE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/opustest
+        )
+        target_link_libraries(opustest
+            libhl
+            fmt.hdll
+            ${HLC_LIBRARIES}
+        )
+    endif()
+
+    #####################
     # header_macro_clashes.c
 
     add_executable(header_macro_clashes
@@ -728,6 +775,11 @@ if(BUILD_TESTING)
                 COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest.hl ${CMAKE_SOURCE_DIR}/other/tests/fonts
             )
         endif()
+        if(OPUS_TESTS)
+            add_test(NAME opustest.hl
+                COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/opustest.hl ${CMAKE_SOURCE_DIR}/other/tests/opus
+            )
+        endif()
     endif()
 
     add_test(NAME hello
@@ -745,6 +797,11 @@ if(BUILD_TESTING)
     if(WITH_HARFBUZZ)
         add_test(NAME harfbuzztest
             COMMAND harfbuzztest ${CMAKE_SOURCE_DIR}/other/tests/fonts
+        )
+    endif()
+    if(OPUS_TESTS)
+        add_test(NAME opustest
+            COMMAND opustest ${CMAKE_SOURCE_DIR}/other/tests/opus
         )
     endif()
     add_test(NAME from_utf8

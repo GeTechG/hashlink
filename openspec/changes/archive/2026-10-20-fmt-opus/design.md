@@ -1,0 +1,21 @@
+## Context
+`fmt.hdll` binds libvorbisfile for Ogg Vorbis: `ogg_open` reads from memory through callbacks, `ogg_info`/`ogg_tell`/`ogg_seek`/`ogg_read` work in samples per channel and bytes of interleaved PCM. Its dependencies come three ways: sources vendored under `include/` (Windows), `ExternalProject` builds (`DOWNLOAD_DEPENDENCIES`, Android) and system packages (other desktops, the `Makefile`). Ogg Opus decoding needs libopus (the codec) and opusfile (Ogg demuxing, seeking, pre-skip and gain) on top of libogg, which `fmt` already has on every path.
+
+## Goals / Non-Goals
+- Goals: decode an Ogg Opus file held in memory to PCM from Haxe, bytecode and HL/C, on Linux, Windows, macOS and Android, with one build description and the same samples everywhere.
+- Non-Goals: a Haxe wrapper class (the program declares the primitives, as it does for Vorbis), encoding, Opus over HTTP, Opus in other containers, resampling (Opus is always 48 kHz), the `Makefile` and Visual Studio builds.
+
+## Decisions
+- **Sources compiled in, on every CMake target.** `libs/fmt/CMakeLists.txt` fetches the opus and opusfile release tarballs (URL and SHA-256 pinned) with `FetchContent`, `SOURCE_SUBDIR` pointing at a directory without `CMakeLists.txt` so their own builds are never configured, and adds their C files to `fmt.hdll`. The opus file lists are read from the release's own `celt_sources.mk`, `silk_sources.mk` and `opus_sources.mk` (the lists `Makefile.unix` uses), float build: `OPUS_BUILD`, stack arrays as C99 VLAs (`VAR_ARRAYS`; `USE_ALLOCA` with MSVC, which has no VLAs), no SIMD or run-time CPU detection. opusfile is `info.c`, `internal.c`, `opusfile.c`, `stream.c` (no `http.c`). No sub-build means no generator, configuration or toolchain to pass down (multi-config Visual Studio included), and a system libopus is never used, so the samples do not depend on the distribution.
+- **libogg as `fmt` already has it**: the vendored sources on Windows, the `libogg` `ExternalProject` under `DOWNLOAD_DEPENDENCIES`, the system package otherwise.
+- **`WITH_OPUS` is declared in the root `CMakeLists.txt`** (the tests need it before `libs/` is added) and defaults to `ON` only with CMake 3.18 or later (`FetchContent_MakeAvailable` with `SOURCE_SUBDIR`), as `WITH_HARFBUZZ` does; turning it on with an older CMake stops with a message. It defines `FMT_OPUS` for `fmt.c`.
+- **Without `FMT_OPUS` the primitives still exist** and throw "Opus is not supported by this fmt.hdll". A program that references them then loads with every `fmt.hdll` (a missing primitive fails the whole program at load time) and finds out when it opens a stream.
+- **The bytes are copied** at `opus_open`: opusfile reads the buffer for as long as the stream lives (seeking reads it again), and the struct that holds the stream is not scanned by the GC. Compressed audio is small; a dangling pointer is not.
+- **Same shape as the Vorbis primitives**: `opus_info` returns bitrate, rate, samples, channels through references like `ogg_info` (rate is always 48000, samples are per channel at 48 kHz after pre-skip); `opus_read` takes a byte size and returns bytes of interleaved PCM, 0 at the end and a negative opusfile error for data it cannot decode (a hole, a corrupt page), after which reading may continue. Formats: 2 = signed 16-bit, 3 = 32-bit float, both native endian (the Vorbis numbering, where 3 is the float format it never implemented); any other value returns -1.
+- **opusfile's 16-bit output is dithered** (`op_read`), so the tests compare it with `opusdec --no-dither` within a tolerance, and the float output within a tighter one.
+- **Reference PCM** for the tests is the output of `opusdec` (opus-tools 0.2 with libopus 1.5.2), raw signed 16-bit, stored next to the clips.
+
+## Risks / Trade-offs
+- Configure time downloads two tarballs (about 8 MB) on every CMake build with the decoder on → `WITH_OPUS=OFF` or `FETCHCONTENT_SOURCE_DIR_OPUS-PROJECT`/`FETCHCONTENT_SOURCE_DIR_OPUSFILE-PROJECT` pointing at extracted releases.
+- No SIMD: decoding is a little slower than a distribution libopus. Decoding speech or music at 48 kHz stays far under real time on any target.
+- libopus and opusfile symbols are linked into `fmt.hdll` with default visibility, as libvorbis already is under `DOWNLOAD_DEPENDENCIES`.

@@ -245,6 +245,77 @@ else()
     endif()
 endif()
 
+# Ogg Opus: libopus and opusfile are compiled into the library from pinned releases on every target,
+# nothing needed on the system; libogg is the one Vorbis uses above
+if(WITH_OPUS)
+    if(CMAKE_VERSION VERSION_LESS 3.18)
+        message(FATAL_ERROR "Opus in fmt.hdll needs CMake 3.18 or later (or -DWITH_OPUS=OFF)")
+    endif()
+    include(FetchContent)
+    # only the sources are needed: a directory without CMakeLists.txt keeps their own builds out
+    FetchContent_Declare(opus-project
+        URL https://github.com/xiph/opus/releases/download/v1.5.2/opus-1.5.2.tar.gz
+        URL_HASH SHA256=65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1
+        SOURCE_SUBDIR no-cmake
+    )
+    FetchContent_Declare(opusfile-project
+        URL https://github.com/xiph/opusfile/releases/download/v0.12/opusfile-0.12.tar.gz
+        URL_HASH SHA256=118d8601c12dd6a44f52423e68ca9083cc9f2bfe72da7a8c1acb22a80ae3550b
+        SOURCE_SUBDIR no-cmake
+    )
+    FetchContent_MakeAvailable(opus-project opusfile-project)
+
+    # the file lists of opus' own Makefile.unix: float build, no SIMD or run-time CPU detection
+    set(OPUS_SOURCES)
+    foreach(mk_vars
+            "celt_sources.mk;CELT_SOURCES"
+            "silk_sources.mk;SILK_SOURCES;SILK_SOURCES_FLOAT"
+            "opus_sources.mk;OPUS_SOURCES;OPUS_SOURCES_FLOAT")
+        list(POP_FRONT mk_vars mk)
+        file(READ ${opus-project_SOURCE_DIR}/${mk} mk_text)
+        string(REPLACE "\\\n" " " mk_text "${mk_text}")
+        string(REPLACE "\n" ";" mk_lines "${mk_text}")
+        foreach(var ${mk_vars})
+            set(found OFF)
+            foreach(line ${mk_lines})
+                if(line MATCHES "^${var} = (.*)$")
+                    separate_arguments(names UNIX_COMMAND "${CMAKE_MATCH_1}")
+                    list(TRANSFORM names PREPEND ${opus-project_SOURCE_DIR}/)
+                    list(APPEND OPUS_SOURCES ${names})
+                    set(found ON)
+                endif()
+            endforeach()
+            if(NOT found)
+                message(FATAL_ERROR "${var} not found in opus ${mk}")
+            endif()
+        endforeach()
+    endforeach()
+
+    set_source_files_properties(${OPUS_SOURCES}
+        PROPERTIES
+        # stack arrays: C99 VLAs where the compiler has them, _alloca from malloc.h with MSVC
+        COMPILE_DEFINITIONS "OPUS_BUILD;$<IF:$<BOOL:${MSVC}>,USE_ALLOCA,VAR_ARRAYS;HAVE_LRINTF>"
+        INCLUDE_DIRECTORIES "${opus-project_SOURCE_DIR}/celt;${opus-project_SOURCE_DIR}/silk;${opus-project_SOURCE_DIR}/silk/float"
+    )
+
+    target_sources(fmt.hdll PRIVATE
+        ${OPUS_SOURCES}
+        ${opusfile-project_SOURCE_DIR}/src/info.c
+        ${opusfile-project_SOURCE_DIR}/src/internal.c
+        ${opusfile-project_SOURCE_DIR}/src/opusfile.c
+        ${opusfile-project_SOURCE_DIR}/src/stream.c
+    )
+    target_include_directories(fmt.hdll
+        PRIVATE
+        ${opus-project_SOURCE_DIR}/include
+        ${opusfile-project_SOURCE_DIR}/include
+    )
+    target_compile_definitions(fmt.hdll PRIVATE FMT_OPUS)
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(fmt.hdll m)
+    endif()
+endif()
+
 set_as_hdll(fmt)
 
 target_include_directories(fmt.hdll
