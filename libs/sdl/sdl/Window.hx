@@ -238,6 +238,16 @@ class Window {
 		return h;
 	}
 
+	/**
+		The part of the window not covered by a display cutout or system UI,
+		in the units of `width` and `height`. The whole window when nothing covers it.
+	**/
+	public function getSafeArea() : { x : Int, y : Int, width : Int, height : Int } {
+		var x = 0, y = 0, w = 0, h = 0;
+		winGetSafeArea(win, x, y, w, h);
+		return { x : x, y : y, width : w, height : h };
+	}
+
 	function get_displayScale() : Float {
 		return winGetDisplayScale(win);
 	}
@@ -418,6 +428,9 @@ class Window {
 	}
 
 	static function winGetMaxSize( win : WinPtr, width : hl.Ref<Int>, height : hl.Ref<Int> ) {
+	}
+
+	static function winGetSafeArea( win : WinPtr, x : hl.Ref<Int>, y : hl.Ref<Int>, width : hl.Ref<Int>, height : hl.Ref<Int> ) {
 	}
 
 	static function winGetOpacity( win : WinPtr ) : Float {
