@@ -16,6 +16,6 @@ Text that is drawn glyph by glyph from a character map has no kerning, no ligatu
 ### Modified Capabilities
 
 ## Impact
-- New: `libs/harfbuzz/` (C, CMake, Haxe), `other/tests/Harfbuzz.hx` and its two test fonts under `other/tests/fonts/`.
-- `libs/CMakeLists.txt`: option `WITH_HARFBUZZ`. `CMakeLists.txt`: the test, bytecode and HL/C.
+- New: `libs/harfbuzz/` (C, CMake, Haxe), `other/tests/HarfbuzzTest.hx` and its two test fonts under `other/tests/fonts/`.
+- `CMakeLists.txt`: option `WITH_HARFBUZZ` and the test, bytecode and HL/C. `libs/CMakeLists.txt`: adds the library.
 - A CMake build with `WITH_HARFBUZZ=ON` downloads the HarfBuzz release (about 20 MB) at configure time and needs a C++11 compiler. The `Makefile` and the Visual Studio projects do not build the library.

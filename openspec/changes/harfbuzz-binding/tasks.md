@@ -1,12 +1,12 @@
 ## 1. Library
 
-- [x] 1.1 `libs/harfbuzz/CMakeLists.txt`: fetch the pinned HarfBuzz release, compile `src/harfbuzz.cc` into `harfbuzz.hdll`; `WITH_HARFBUZZ` in `libs/CMakeLists.txt`
+- [x] 1.1 `libs/harfbuzz/CMakeLists.txt`: fetch the pinned HarfBuzz release, compile `src/harfbuzz.cc` into `harfbuzz.hdll`; `libs/CMakeLists.txt` adds it under `WITH_HARFBUZZ`, declared in the root `CMakeLists.txt`
 - [x] 1.2 `libs/harfbuzz/harfbuzz.c`: face, font, buffer, shape, glyphs
 - [x] 1.3 Haxe package `harfbuzz` (`Face`, `Font`, `Buffer`, `Direction`, `GlyphRun`) and `haxelib.json`
 
 ## 2. Tests
 
-- [x] 2.1 `other/tests/Harfbuzz.hx` with two subset Noto fonts (OFL): ligature `fi`, `-liga`, Arabic, scale, not a font
+- [x] 2.1 `other/tests/HarfbuzzTest.hx` with two subset Noto fonts (OFL): ligature `fi`, `-liga`, Arabic, scale, not a font
 - [x] 2.2 `CMakeLists.txt`: the test as bytecode under `hl` and as HL/C
 
 ## 3. Verification
