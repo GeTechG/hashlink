@@ -1,10 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: HarfBuzz is built into the library from a pinned release
-`harfbuzz.hdll` SHALL contain HarfBuzz compiled from the release whose URL and SHA-256 `libs/harfbuzz/CMakeLists.txt` pins, with no FreeType, ICU, GLib or platform shaper, and SHALL NOT need a HarfBuzz installed on the system. The same `libs/harfbuzz/CMakeLists.txt` SHALL build it for desktop targets and, with the NDK toolchain, for Android. `WITH_HARFBUZZ=OFF` SHALL leave it out of the build.
+`harfbuzz.hdll` SHALL contain HarfBuzz compiled from the release whose URL and SHA-256 `libs/harfbuzz/CMakeLists.txt` pins, with no FreeType, ICU, GLib or platform shaper, and SHALL NOT need a HarfBuzz installed on the system. The same `libs/harfbuzz/CMakeLists.txt` SHALL build it for desktop targets and, with the NDK toolchain, for Android. `WITH_HARFBUZZ=OFF` SHALL leave it out of the build; it SHALL default to on with CMake 3.18 or later and to off with an older CMake.
 
 #### Scenario: Desktop build
-- **WHEN** the repo is built with CMake on Linux, macOS or Windows with `WITH_HARFBUZZ` left on
+- **WHEN** the repo is built with CMake 3.18 or later on Linux, macOS or Windows with `WITH_HARFBUZZ` left at its default
 - **THEN** `harfbuzz.hdll` is built, and it loads on a machine without a HarfBuzz library
 
 #### Scenario: Android build
