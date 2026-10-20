@@ -25,6 +25,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64" AND (NOT CMAKE_OSX_ARCHITECTURES
 endif()
 
 option(WITH_VM "Whether to build the Hashlink virtual machine" ${WITH_VM_DEFAULT})
+# declared here as the tests need it before libs/ is added
+option(WITH_HARFBUZZ "Build harfbuzz.hdll." ON)
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 if(BUILD_SHARED_LIBS)
     # ensure third-party static libs are built with PIC
@@ -487,6 +489,21 @@ if(BUILD_TESTING)
     )
 
     #####################
+    # harfbuzztest.hl
+
+    if(WITH_HARFBUZZ)
+        add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest.hl
+            COMMAND ${HAXE_COMPILER}
+                ${HAXE_HL_FLAGS}
+                -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest.hl
+                -cp ${CMAKE_SOURCE_DIR}/other/tests -cp ${CMAKE_SOURCE_DIR}/libs/harfbuzz -main HarfbuzzTest
+        )
+        add_custom_target(harfbuzztest.hl ALL
+            DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest.hl
+        )
+    endif()
+
+    #####################
     # hello.c
 
     add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/hello/hello.c
@@ -578,6 +595,32 @@ if(BUILD_TESTING)
         uv.hdll
         ${HLC_LIBRARIES}
     )
+
+    #####################
+    # harfbuzztest.c
+
+    if(WITH_HARFBUZZ)
+        add_custom_command(OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest/harfbuzztest.c
+            COMMAND ${HAXE_COMPILER}
+                -hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest/harfbuzztest.c
+                -cp ${CMAKE_SOURCE_DIR}/other/tests -cp ${CMAKE_SOURCE_DIR}/libs/harfbuzz -main HarfbuzzTest
+        )
+        add_executable(harfbuzztest
+            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest/harfbuzztest.c
+        )
+        set_target_properties(harfbuzztest
+            PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest
+        )
+        target_include_directories(harfbuzztest
+            PRIVATE ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest
+        )
+        target_link_libraries(harfbuzztest
+            libhl
+            harfbuzz.hdll
+            ${HLC_LIBRARIES}
+        )
+    endif()
 
     #####################
     # header_macro_clashes.c
@@ -675,6 +718,11 @@ if(BUILD_TESTING)
         add_test(NAME uvsample.hl
             COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/uvsample.hl 6001
         )
+        if(WITH_HARFBUZZ)
+            add_test(NAME harfbuzztest.hl
+                COMMAND hl ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test/harfbuzztest.hl ${CMAKE_SOURCE_DIR}/other/tests/fonts
+            )
+        endif()
     endif()
 
     add_test(NAME hello
@@ -689,6 +737,11 @@ if(BUILD_TESTING)
     add_test(NAME uvsample
         COMMAND uvsample 6002
     )
+    if(WITH_HARFBUZZ)
+        add_test(NAME harfbuzztest
+            COMMAND harfbuzztest ${CMAKE_SOURCE_DIR}/other/tests/fonts
+        )
+    endif()
     add_test(NAME from_utf8
         COMMAND from_utf8
     )
