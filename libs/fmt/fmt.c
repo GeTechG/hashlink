@@ -11,6 +11,9 @@ extern bool sys_jpg_decode( vbyte *data, int dataLen, vbyte *out, int width, int
 
 #include <zlib.h>
 #include <vorbis/vorbisfile.h>
+#ifdef FMT_OPUS
+#	include <opusfile.h>
+#endif
 
 #define MINIMP3_IMPLEMENTATION
 #define MINIMP3_FLOAT_OUTPUT
@@ -463,6 +466,112 @@ DEFINE_PRIM(_VOID, ogg_info, _OGG _REF(_I32) _REF(_I32) _REF(_I32) _REF(_I32));
 DEFINE_PRIM(_I32, ogg_tell, _OGG);
 DEFINE_PRIM(_BOOL, ogg_seek, _OGG _I32);
 DEFINE_PRIM(_I32, ogg_read, _OGG _BYTES _I32 _I32);
+
+/* ----------------------------------------------- SOUND : OPUS ----------------------------------------------- */
+
+typedef struct _fmt_opus fmt_opus;
+struct _fmt_opus {
+	void (*finalize)( fmt_opus * );
+#ifdef FMT_OPUS
+	OggOpusFile *f;
+	unsigned char *bytes;
+#endif
+};
+
+#ifdef FMT_OPUS
+
+static void opus_finalize( fmt_opus *o ) {
+	op_free(o->f);
+	free(o->bytes);
+}
+
+HL_PRIM fmt_opus *HL_NAME(opus_open)( char *bytes, int size ) {
+	fmt_opus *o;
+	OggOpusFile *f;
+	// opusfile reads the buffer for as long as the stream lives
+	unsigned char *copy = (unsigned char*)malloc(size > 0 ? size : 1);
+	if( copy == NULL || size < 0 ) {
+		free(copy);
+		return NULL;
+	}
+	memcpy(copy, bytes, size);
+	hl_blocking(true);
+	f = op_open_memory(copy, size, NULL);
+	hl_blocking(false);
+	if( f == NULL ) {
+		free(copy);
+		return NULL;
+	}
+	o = (fmt_opus*)hl_gc_alloc_finalizer(sizeof(fmt_opus));
+	o->finalize = opus_finalize;
+	o->f = f;
+	o->bytes = copy;
+	return o;
+}
+
+HL_PRIM void HL_NAME(opus_info)( fmt_opus *o, int *bitrate, int *freq, int *samples, int *channels ) {
+	opus_int32 rate = op_bitrate(o->f, -1);
+	ogg_int64_t total = op_pcm_total(o->f, -1);
+	*bitrate = rate < 0 ? 0 : rate;
+	*freq = 48000;
+	*channels = op_channel_count(o->f, -1);
+	*samples = total < 0 ? 0 : (int)total;
+}
+
+HL_PRIM int HL_NAME(opus_tell)( fmt_opus *o ) {
+	return (int)op_pcm_tell(o->f); // overflow at 12 hours @48 Khz
+}
+
+HL_PRIM bool HL_NAME(opus_seek)( fmt_opus *o, int sample ) {
+	bool ok;
+	hl_blocking(true);
+	ok = op_pcm_seek(o->f, sample) == 0;
+	hl_blocking(false);
+	return ok;
+}
+
+#define OPUSFMT_I16		2
+#define OPUSFMT_F32		3
+
+HL_PRIM int HL_NAME(opus_read)( fmt_opus *o, char *output, int size, int format ) {
+	int ret, link = -1;
+	hl_blocking(true);
+	switch( format ) {
+	case OPUSFMT_I16:
+		ret = op_read(o->f, (opus_int16*)output, size >> 1, &link);
+		if( ret > 0 ) ret *= op_channel_count(o->f, link) * 2;
+		break;
+	case OPUSFMT_F32:
+		ret = op_read_float(o->f, (float*)output, size >> 2, &link);
+		if( ret > 0 ) ret *= op_channel_count(o->f, link) * 4;
+		break;
+	default:
+		ret = -1;
+		break;
+	}
+	hl_blocking(false);
+	return ret;
+}
+
+#else
+
+#define OPUS_UNSUPPORTED hl_error("Opus is not supported by this fmt.hdll")
+
+HL_PRIM fmt_opus *HL_NAME(opus_open)( char *bytes, int size ) { OPUS_UNSUPPORTED; return NULL; }
+HL_PRIM void HL_NAME(opus_info)( fmt_opus *o, int *bitrate, int *freq, int *samples, int *channels ) { OPUS_UNSUPPORTED; }
+HL_PRIM int HL_NAME(opus_tell)( fmt_opus *o ) { OPUS_UNSUPPORTED; return 0; }
+HL_PRIM bool HL_NAME(opus_seek)( fmt_opus *o, int sample ) { OPUS_UNSUPPORTED; return false; }
+HL_PRIM int HL_NAME(opus_read)( fmt_opus *o, char *output, int size, int format ) { OPUS_UNSUPPORTED; return -1; }
+
+#endif
+
+#define _OPUS _ABSTRACT(fmt_opus)
+
+DEFINE_PRIM(_OPUS, opus_open, _BYTES _I32);
+DEFINE_PRIM(_VOID, opus_info, _OPUS _REF(_I32) _REF(_I32) _REF(_I32) _REF(_I32));
+DEFINE_PRIM(_I32, opus_tell, _OPUS);
+DEFINE_PRIM(_BOOL, opus_seek, _OPUS _I32);
+DEFINE_PRIM(_I32, opus_read, _OPUS _BYTES _I32 _I32);
 
 /* ----------------------------------------------- SOUND : MP3 ------------------------------------------------ */
 
