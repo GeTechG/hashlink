@@ -884,6 +884,18 @@ HL_PRIM void HL_NAME(win_get_max_size)(SDL_Window *win, int *width, int *height)
 	SDL_GetWindowMaximumSize(win, width, height);
 }
 
+HL_PRIM void HL_NAME(win_get_safe_area)(SDL_Window *win, int *x, int *y, int *width, int *height) {
+	SDL_Rect r;
+	if( !SDL_GetWindowSafeArea(win, &r) ) {
+		r.x = r.y = 0;
+		SDL_GetWindowSize(win, &r.w, &r.h);
+	}
+	*x = r.x;
+	*y = r.y;
+	*width = r.w;
+	*height = r.h;
+}
+
 HL_PRIM double HL_NAME(win_get_display_scale)(SDL_Window *win) {
 	return (double)SDL_GetWindowDisplayScale(win);
 }
@@ -972,6 +984,7 @@ DEFINE_PRIM(_BOOL, win_maximized, TWIN);
 DEFINE_PRIM(_VOID, win_get_size, TWIN _REF(_I32) _REF(_I32));
 DEFINE_PRIM(_VOID, win_get_min_size, TWIN _REF(_I32) _REF(_I32));
 DEFINE_PRIM(_VOID, win_get_max_size, TWIN _REF(_I32) _REF(_I32));
+DEFINE_PRIM(_VOID, win_get_safe_area, TWIN _REF(_I32) _REF(_I32) _REF(_I32) _REF(_I32));
 DEFINE_PRIM(_F64, win_get_display_scale, TWIN);
 DEFINE_PRIM(_F64, win_get_opacity, TWIN);
 DEFINE_PRIM(_BOOL, win_set_opacity, TWIN _F64);
