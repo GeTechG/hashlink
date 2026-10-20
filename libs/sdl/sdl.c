@@ -66,6 +66,13 @@ typedef enum {
 	DropText,
 	DropEnd,
 	KeyMapChanged = 500,
+	AppTerminating = 600,
+	AppLowMemory,
+	AppWillEnterBackground,
+	AppDidEnterBackground,
+	AppWillEnterForeground,
+	AppDidEnterForeground,
+	RenderDeviceReset = 700,
 } event_type;
 
 typedef enum {
@@ -108,6 +115,33 @@ typedef struct {
 static bool isGlOptionsSet = false;
 
 
+// SDL hands the application lifecycle events only to event watchers, it never queues them:
+// queue them again under an event type of our own so that event_loop sees them in order.
+static Uint32 app_event_type = 0;
+
+static bool SDLCALL app_event_watch( void *userdata, SDL_Event *e ) {
+	switch( e->type ) {
+	case SDL_EVENT_TERMINATING:
+	case SDL_EVENT_LOW_MEMORY:
+	case SDL_EVENT_WILL_ENTER_BACKGROUND:
+	case SDL_EVENT_DID_ENTER_BACKGROUND:
+	case SDL_EVENT_WILL_ENTER_FOREGROUND:
+	case SDL_EVENT_DID_ENTER_FOREGROUND: {
+		SDL_Event ev;
+		SDL_zero(ev);
+		ev.type = app_event_type;
+		ev.user.timestamp = SDL_GetTicksNS();
+		ev.user.code = (Sint32)e->type;
+		// not SDL_PushEvent: it would run the watchers again
+		SDL_PeepEvents(&ev, 1, SDL_ADDEVENT, 0, 0);
+		break;
+	}
+	default:
+		break;
+	}
+	return true;
+}
+
 HL_PRIM bool HL_NAME(init_once)() {
 	SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
 #	ifdef HL_ANDROID
@@ -119,6 +153,9 @@ HL_PRIM bool HL_NAME(init_once)() {
 		return false;
 	}
 	setlocale(LC_ALL, "C");
+	app_event_type = SDL_RegisterEvents(1);
+	if( app_event_type )
+		SDL_AddEventWatch(app_event_watch, NULL);
 #	ifdef _WIN32
 	// Set the internal windows timer period to 1ms (will give accurate sleep for vsync)
 	timeBeginPeriod(1);
@@ -233,6 +270,32 @@ HL_PRIM bool HL_NAME(event_loop)( event_data *event ) {
 				break;
 			default:
 				//printf("Unknown window state code %d\\n", e.window.event);
+				continue;
+			}
+			return true;
+		}
+
+		if( app_event_type && e.type == app_event_type ) {
+			switch( e.user.code ) {
+			case SDL_EVENT_TERMINATING:
+				event->type = AppTerminating;
+				break;
+			case SDL_EVENT_LOW_MEMORY:
+				event->type = AppLowMemory;
+				break;
+			case SDL_EVENT_WILL_ENTER_BACKGROUND:
+				event->type = AppWillEnterBackground;
+				break;
+			case SDL_EVENT_DID_ENTER_BACKGROUND:
+				event->type = AppDidEnterBackground;
+				break;
+			case SDL_EVENT_WILL_ENTER_FOREGROUND:
+				event->type = AppWillEnterForeground;
+				break;
+			case SDL_EVENT_DID_ENTER_FOREGROUND:
+				event->type = AppDidEnterForeground;
+				break;
+			default:
 				continue;
 			}
 			return true;
@@ -397,6 +460,10 @@ HL_PRIM bool HL_NAME(event_loop)( event_data *event ) {
 			break;
 		case SDL_EVENT_KEYMAP_CHANGED:
 			event->type = KeyMapChanged;
+			break;
+		case SDL_EVENT_RENDER_DEVICE_RESET:
+			event->type = RenderDeviceReset;
+			event->window = e.render.windowID;
 			break;
 		default:
 			//printf("Unknown event type 0x%X\\n", e.type);

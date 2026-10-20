@@ -84,8 +84,13 @@ class Sdl {
 			if( !eventLoop(event) )
 				break;
 			var ret = onEvent(event);
-			if( event.type == Quit && ret )
+			if( event.type == Quit && ret ) {
+				// when the OS ends the app (Android), SDL sends AppTerminating right after Quit
+				while( eventLoop(event) )
+					if( event.type == AppTerminating )
+						onEvent(event);
 				return false;
+			}
 		}
 		return true;
 	}

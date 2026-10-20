@@ -64,6 +64,13 @@ enum abstract EventType(Int) {
 	var DropText = 402;
 	var DropEnd = 403;
 	var KeyMapChanged = 500;
+	var AppTerminating = 600;
+	var AppLowMemory = 601;
+	var AppWillEnterBackground = 602;
+	var AppDidEnterBackground = 603;
+	var AppWillEnterForeground = 604;
+	var AppDidEnterForeground = 605;
+	var RenderDeviceReset = 700;
 }
 
 enum abstract WindowStateChange(Int) {
