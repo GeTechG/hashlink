@@ -44,6 +44,12 @@ elseif(DOWNLOAD_DEPENDENCIES)
     set(CMAKE_FIND_LIBRARY_SUFFIXES ${OPENAL_DEFAULT_FIND_LIBRARY_SUFFIXES})
     if (ANDROID)
         set(ALSOFT_REQUIRE_OPENSL ON CACHE INTERNAL "")
+        # No desktop backends nor RTKit: pkg-config is not confined to the NDK sysroot and
+        # would build them against the host's headers (PipeWire, D-Bus)
+        foreach(backend PIPEWIRE PULSEAUDIO ALSA OSS SOLARIS SNDIO JACK PORTAUDIO)
+            set(ALSOFT_BACKEND_${backend} OFF CACHE INTERNAL "")
+        endforeach()
+        set(ALSOFT_RTKIT OFF CACHE INTERNAL "")
     endif()
 
     FetchContent_MakeAvailable(openal-soft)
