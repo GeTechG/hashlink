@@ -1,6 +1,7 @@
 #define HL_NAME(n) harfbuzz_##n
 
 #include <hl.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <hb.h>
@@ -171,6 +172,8 @@ HL_PRIM vbyte *HL_NAME(buffer_get_glyphs)( hbbuffer *b ) {
 		return NULL;
 	if( hb_buffer_get_content_type(b->buf) != HB_BUFFER_CONTENT_TYPE_GLYPHS )
 		hl_error("Buffer is not shaped");
+	if( len > INT_MAX / (GLYPH_STRIDE * sizeof(int)) )
+		hl_error("Too many glyphs");
 	info = hb_buffer_get_glyph_infos(b->buf, NULL);
 	pos = hb_buffer_get_glyph_positions(b->buf, NULL);
 	out = (int*)hl_alloc_bytes((int)(len * GLYPH_STRIDE * sizeof(int)));

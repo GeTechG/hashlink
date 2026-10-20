@@ -1,5 +1,8 @@
 # HarfBuzz is built into the library from the amalgamated source of a pinned release:
 # no FreeType, ICU, GLib or platform shaper, nothing needed on the system.
+if(CMAKE_VERSION VERSION_LESS 3.18)
+    message(FATAL_ERROR "harfbuzz.hdll needs CMake 3.18 or later (or -DWITH_HARFBUZZ=OFF)")
+endif()
 include(FetchContent)
 FetchContent_Declare(harfbuzz-project
     URL https://github.com/harfbuzz/harfbuzz/releases/download/14.6.0/harfbuzz-14.6.0.tar.xz

@@ -25,8 +25,13 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch64" AND (NOT CMAKE_OSX_ARCHITECTURES
 endif()
 
 option(WITH_VM "Whether to build the Hashlink virtual machine" ${WITH_VM_DEFAULT})
-# declared here as the tests need it before libs/ is added
-option(WITH_HARFBUZZ "Build harfbuzz.hdll." ON)
+# declared here as the tests need it before libs/ is added; its download needs CMake 3.18
+if(CMAKE_VERSION VERSION_LESS 3.18)
+    set(WITH_HARFBUZZ_DEFAULT OFF)
+else()
+    set(WITH_HARFBUZZ_DEFAULT ON)
+endif()
+option(WITH_HARFBUZZ "Build harfbuzz.hdll." ${WITH_HARFBUZZ_DEFAULT})
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 if(BUILD_SHARED_LIBS)
     # ensure third-party static libs are built with PIC
