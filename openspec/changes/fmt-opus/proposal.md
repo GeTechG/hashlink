@@ -17,4 +17,4 @@ A HashLink program can decode Ogg Vorbis and MP3 with `fmt.hdll`, but not Ogg Op
 ## Impact
 - `libs/fmt/fmt.c`: the Opus primitives. `libs/fmt/CMakeLists.txt`: the download and the sources of libopus and opusfile.
 - `CMakeLists.txt`: option `WITH_OPUS` and the test, bytecode and HL/C. New: `other/tests/OpusTest.hx` and its clips under `other/tests/opus/`.
-- A CMake build with `WITH_OPUS=ON` downloads about 9 MB at configure time. The `Makefile` and `fmt.vcxproj` are unchanged and build `fmt.hdll` without Opus.
+- A CMake build with `WITH_OPUS=ON` downloads about 8 MB at configure time. The `Makefile` and `fmt.vcxproj` are unchanged and build `fmt.hdll` without Opus.
