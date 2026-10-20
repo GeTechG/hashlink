@@ -293,7 +293,8 @@ if(WITH_OPUS)
 
     set_source_files_properties(${OPUS_SOURCES}
         PROPERTIES
-        COMPILE_DEFINITIONS "OPUS_BUILD;USE_ALLOCA;$<$<NOT:$<BOOL:${MSVC}>>:HAVE_LRINTF>"
+        # stack arrays: C99 VLAs where the compiler has them, _alloca from malloc.h with MSVC
+        COMPILE_DEFINITIONS "OPUS_BUILD;$<IF:$<BOOL:${MSVC}>,USE_ALLOCA,VAR_ARRAYS;HAVE_LRINTF>"
         INCLUDE_DIRECTORIES "${opus-project_SOURCE_DIR}/celt;${opus-project_SOURCE_DIR}/silk;${opus-project_SOURCE_DIR}/silk/float"
     )
 
