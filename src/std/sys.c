@@ -48,7 +48,6 @@
 typedef struct _stat32 pstat;
 #	define stat		_wstat32
 #	define unlink	_wunlink
-#	define rename	_wrename
 #	define mkdir(path,mode)	_wmkdir(path)
 #	define rmdir	_wrmdir
 #else
@@ -420,7 +419,12 @@ HL_PRIM bool hl_sys_delete( vbyte *path ) {
 }
 
 HL_PRIM bool hl_sys_rename( vbyte *path, vbyte *newname ) {
+#ifdef HL_WIN_DESKTOP
+	// like POSIX rename : replace an existing destination file
+	return MoveFileExW((pchar*)path,(pchar*)newname,MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED) != 0;
+#else
 	return rename((pchar*)path,(pchar*)newname) == 0;
+#endif
 }
 
 HL_PRIM varray *hl_sys_stat( vbyte *path ) {
