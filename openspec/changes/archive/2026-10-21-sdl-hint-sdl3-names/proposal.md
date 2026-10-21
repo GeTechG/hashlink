@@ -1,5 +1,5 @@
 ## Why
-`sdl.SDLHint` (in `sdl/Sdl.hx`) was written for SDL 2. Under SDL 3 a good part of it names hints SDL no longer reads: setting them through `sdl.Sdl.setHint` silently does nothing (`SDL_HINT_IDLE_TIMER_DISABLED`, `SDL_HINT_RENDER_SCALE_QUALITY`, …), and three of them have an SDL 3 replacement under another name that the enum does not offer. Checked against SDL 3.4.10's `SDL_hints.h` and the hint section of SDL's `README-migration.md`: 20 of the 44 constants already hold an SDL 3 name, 24 do not.
+`sdl.SDLHint` (in `sdl/Sdl.hx`) was written for SDL 2. Under SDL 3 a good part of it names hints SDL no longer reads: setting them through `sdl.Sdl.setHint` silently does nothing (`SDL_HINT_IDLE_TIMER_DISABLED`, `SDL_HINT_RENDER_SCALE_QUALITY`, …), and three of them have an SDL 3 replacement under another name that the enum does not offer. Checked against SDL 3.4.10's `SDL_hints.h` and the hint section of SDL's `README-migration.md`: 22 of the 43 constants already hold an SDL 3 name, 21 do not.
 
 ## What Changes
 - Renamed in SDL 3, same meaning: new `SDL_HINT_WINDOW_ALLOW_TOPMOST = "SDL_WINDOW_ALLOW_TOPMOST"`. `SDL_HINT_ALLOW_TOPMOST` takes the same SDL 3 value (so existing code starts working again) and is deprecated in favour of the new name.
