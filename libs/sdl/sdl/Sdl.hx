@@ -276,6 +276,20 @@ class Sdl {
 		return null;
 	}
 
+	/**
+		The user's preferred locales, most preferred first, each as `language`
+		or `language-COUNTRY` (e.g. `en`, `ru-RU`). Empty when the system reports none.
+	**/
+	public static function getPreferredLocales() : Array<String> {
+		var locales = _getPreferredLocales();
+		return locales == null ? [] : [for( l in locales ) @:privateAccess String.fromUTF8(l)];
+	}
+
+	@:hlNative("?sdl", "get_preferred_locales")
+	private static function _getPreferredLocales() : hl.NativeArray<hl.Bytes> {
+		return null;
+	}
+
 	//
 	// SDL3 Joystick API
 	//

@@ -1261,6 +1261,31 @@ HL_PRIM vbyte* HL_NAME(get_error)() {
 	return (vbyte*) SDL_GetError();
 }
 
+HL_PRIM varray *HL_NAME(get_preferred_locales)() {
+	int count = 0;
+	SDL_Locale **locales = SDL_GetPreferredLocales(&count);
+	if( locales == NULL )
+		count = 0;
+	varray *a = hl_alloc_array(&hlt_bytes, count);
+	for( int i = 0; i < count; i++ ) {
+		const char *lang = locales[i]->language;
+		const char *country = locales[i]->country;
+		int llen = (int)strlen(lang);
+		int clen = country == NULL ? 0 : (int)strlen(country);
+		vbyte *s = hl_gc_alloc_noptr(llen + (clen ? clen + 1 : 0) + 1);
+		memcpy(s, lang, llen);
+		if( clen ) {
+			s[llen] = '-';
+			memcpy(s + llen + 1, country, clen);
+			llen += clen + 1;
+		}
+		s[llen] = 0;
+		hl_aptr(a,vbyte*)[i] = s;
+	}
+	SDL_free(locales);
+	return a;
+}
+
 #define _CURSOR _ABSTRACT(sdl_cursor)
 DEFINE_PRIM(_VOID, show_cursor, _BOOL);
 DEFINE_PRIM(_BOOL, is_cursor_visible, _NO_ARG);
@@ -1277,6 +1302,7 @@ DEFINE_PRIM(_ARR, get_display_modes, _I32);
 DEFINE_PRIM(_DYN, get_current_display_mode, _I32 _BOOL);
 DEFINE_PRIM(_ARR, get_devices, _NO_ARG);
 DEFINE_PRIM(_BYTES, get_error, _NO_ARG);
+DEFINE_PRIM(_ARR, get_preferred_locales, _NO_ARG);
 
 // SDL Dialogs API
 typedef struct {
