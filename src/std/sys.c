@@ -584,6 +584,29 @@ HL_PRIM vbyte *hl_sys_full_path( vbyte *path ) {
 	const char sep = '\\';
 	if( GetFullPathNameW((pchar*)path,MAX_PATH+1,out,NULL) == 0 )
 		return NULL;
+#	ifdef HL_WIN_DESKTOP
+	// resolve symbolic links and junctions, as realpath does
+	handle = CreateFileW(out,0,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,NULL);
+	if( handle != INVALID_HANDLE_VALUE ) {
+		pchar final[MAX_PATH+8];
+		pchar *p = final;
+		DWORD flen = GetFinalPathNameByHandleW(handle,final,MAX_PATH+8,FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
+		CloseHandle(handle);
+		if( flen > 0 && flen < MAX_PATH+8 ) {
+			// strip the \\?\ prefix, \\?\UNC\server becomes \\server
+			if( flen >= 8 && memcmp(final,USTR("\\\\?\\UNC\\"),8*sizeof(pchar)) == 0 ) {
+				p += 6;
+				p[0] = '\\';
+				flen -= 6;
+			} else if( flen >= 4 && memcmp(final,USTR("\\\\?\\"),4*sizeof(pchar)) == 0 ) {
+				p += 4;
+				flen -= 4;
+			}
+			if( flen <= MAX_PATH )
+				memcpy(out,p,(flen + 1) * sizeof(pchar));
+		}
+	}
+#	endif
 	len = (int)ustrlen(out);
 	i = 0;
 
