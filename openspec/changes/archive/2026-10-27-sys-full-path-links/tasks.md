@@ -5,4 +5,4 @@
 ## 2. Verification
 
 - [x] 2.1 Host build (`make`) and the bytecode and HL/C smoke tests pass
-- [ ] 2.2 [human] On Windows, build `hl` from this branch and check `sys.FileSystem.fullPath` (steps posted on the issue): a junction `mklink /J root\saves C:\elsewhere` and a directory symlink `mklink /D` resolve to `C:\elsewhere\...`; a file symlink `mklink` resolves to its target; a plain path with wrong case and `..` comes back in the on-disk case; a missing file returns `<cwd>\missing.txt`; a path on a network share (`\\server\share\...`) has no `\\?\` prefix
+- [x] 2.2 [human] On Windows, build `hl` from this branch and check `sys.FileSystem.fullPath` (steps posted on the issue): a junction `mklink /J root\saves C:\elsewhere` and a directory symlink `mklink /D` resolve to `C:\elsewhere\...`; a file symlink `mklink` resolves to its target; a plain path with wrong case and `..` comes back in the on-disk case; a missing file returns `<cwd>\missing.txt`; a path on a network share (`\\server\share\...`) has no `\\?\` prefix
