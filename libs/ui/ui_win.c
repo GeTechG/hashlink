@@ -18,21 +18,15 @@ struct _wref {
 };
 
 // the wref is not scanned by the GC : its closure is kept alive by a root
-static void free_callb( wref *w ) {
-	if( !w->callb ) return;
+static void release_callb( wref *w ) {
+	if( !w || !w->callb ) return;
 	hl_remove_root(&w->callb);
 	w->callb = NULL;
 }
 
 static void finalize_wref( wref *w ) {
-	free_callb(w);
+	release_callb(w);
 	SetProp(w->h,PREF,NULL);
-}
-
-static BOOL CALLBACK free_child_callb( HWND h, LPARAM lparam ) {
-	wref *r = (wref*)GetProp(h,PREF);
-	if( r ) free_callb(r);
-	return TRUE;
 }
 
 static wref *alloc_ref( HWND h ) {
@@ -195,11 +189,20 @@ HL_PRIM void HL_NAME(ui_win_set_enable)( wref *w, bool enable ) {
 	EnableWindow(w->h,enable);
 }
 
+static BOOL CALLBACK release_child( HWND h, LPARAM param ) {
+	wref *w = (wref*)GetProp(h,PREF);
+	release_callb(w);
+	if( w ) w->h = NULL;
+	return TRUE;
+}
+
 HL_PRIM void HL_NAME(ui_win_destroy)( wref *w ) {
+	if( !w->h ) return;
 	// the closures usually reference the window : release them or they would never be collected
-	EnumChildWindows(w->h,free_child_callb,0);
-	free_callb(w);
+	EnumChildWindows(w->h,release_child,0);
+	release_callb(w);
 	DestroyWindow(w->h);
+	w->h = NULL;
 }
 
 HL_PRIM int HL_NAME(ui_loop)( bool blocking ) {
