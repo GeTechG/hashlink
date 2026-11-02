@@ -1313,6 +1313,15 @@ HL_PRIM varray *HL_NAME(get_preferred_locales)() {
 	return a;
 }
 
+HL_PRIM int HL_NAME(get_touch_device_count)() {
+	int count = 0;
+	SDL_TouchID *devices = SDL_GetTouchDevices(&count);
+	if( devices == NULL )
+		return 0;
+	SDL_free(devices);
+	return count;
+}
+
 #define _CURSOR _ABSTRACT(sdl_cursor)
 DEFINE_PRIM(_VOID, show_cursor, _BOOL);
 DEFINE_PRIM(_BOOL, is_cursor_visible, _NO_ARG);
@@ -1330,6 +1339,7 @@ DEFINE_PRIM(_DYN, get_current_display_mode, _I32 _BOOL);
 DEFINE_PRIM(_ARR, get_devices, _NO_ARG);
 DEFINE_PRIM(_BYTES, get_error, _NO_ARG);
 DEFINE_PRIM(_ARR, get_preferred_locales, _NO_ARG);
+DEFINE_PRIM(_I32, get_touch_device_count, _NO_ARG);
 
 // SDL Dialogs API
 typedef struct {
