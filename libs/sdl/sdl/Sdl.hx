@@ -290,6 +290,15 @@ class Sdl {
 		return null;
 	}
 
+	/**
+		The number of touch devices SDL sees (e.g. a touch screen); `0` when there
+		is none. Valid once the video subsystem is initialised (after `init`).
+	**/
+	@:hlNative("?sdl", "get_touch_device_count")
+	public static function getTouchDeviceCount() : Int {
+		return 0;
+	}
+
 	//
 	// SDL3 Joystick API
 	//
