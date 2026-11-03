@@ -4,7 +4,7 @@
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 pin=$(tr -d '[:space:]' < "$here/cli.pin")
-t=$(mktemp -d); trap 'rm -rf "$t"' EXIT
+t=$(mktemp -d) || exit 2; trap 'rm -rf "$t"' EXIT
 fails=0
 
 make_tree() {  # a clean tree in $t/r
