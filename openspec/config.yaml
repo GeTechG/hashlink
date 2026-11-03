@@ -4,3 +4,34 @@ context: |
   hashlink: the HashLink VM for Haxe, maintained as an independent fork of HaxeFoundation/hashlink.
   Its own rules live in AGENTS.md; its own specs live in openspec/specs. Consumers pin it by commit.
   Every commit is either code or infrastructure, never both (see openspec/specs/commit-kinds).
+
+# Per-artifact rules — injected only when that artifact is created.
+rules:
+  specs:
+    - A requirement's text is at most 500 characters and states one behaviour with SHALL or MUST; details and edge
+      cases go in its scenarios.
+    - Every scenario is a `#### Scenario:` heading (exactly four `#`) with **WHEN** / **THEN** bullets, and every
+      requirement has at least one.
+    - A spec states only observable behaviour; how it is implemented belongs in `design.md`.
+    - A MODIFIED requirement copies the whole requirement — text and every scenario — and changes it there. To move
+      scenarios into new requirements, REMOVE the old one and ADD the new ones under new names.
+    - A REMOVED requirement carries a **Reason** and a **Migration**.
+    - A new capability's Purpose is at least 50 characters and says what the capability is for — never `TBD`.
+  tasks:
+    - Each task group carries its own tests and documentation — no separate tests or docs group at the end.
+    - Every task names how it is checked (a command, a test, a CI job, reading).
+    - What follows the tasks — review, archive, merge, hand-over, a bump in a consumer — goes under
+      `## Workflow follow-up` as plain bullets, not checkboxes.
+    - A step only a human can do is written `- [ ] N.M [human] …`, a checkbox; agents never tick it
+      (`AGENTS.md` "Workflow", step 4).
+
+# Per-operation guidance — injected only into apply / archive.
+operations:
+  apply:
+    guidance:
+      - Follow `AGENTS.md` "Workflow" steps 2–3 and "Checks before pushing"; they say which checks run and when.
+  archive:
+    guidance:
+      - Archive as `AGENTS.md` "Workflow" step 3 says — the last commit of the change's own branch.
+      - Run `bash openspec/check.sh` after the archive; a new main spec gets a real Purpose, and no task is left
+        open unless it is `[human]`.

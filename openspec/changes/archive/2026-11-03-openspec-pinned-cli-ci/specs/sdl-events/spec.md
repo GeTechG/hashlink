@@ -1,0 +1,29 @@
+## MODIFIED Requirements
+
+### Requirement: Application lifecycle events reach Haxe
+`sdl.Sdl.processEvents` SHALL deliver each application lifecycle event SDL sends once to its handler, in the order SDL sent it relative to the other events, by a later `processEvents` call on the polling thread, not from inside SDL's call. The `sdl.Event.EventType` of each is given by the requirement *Lifecycle event types*.
+
+#### Scenario: Android app sent to the background and back
+- **WHEN** an Android app polls events with `processEvents` and the user presses HOME, then returns to the app
+- **THEN** the handler receives `AppWillEnterBackground`, `AppDidEnterBackground`, `AppWillEnterForeground` and `AppDidEnterForeground`, in that order
+
+#### Scenario: Android app that does not block on pause
+- **WHEN** the app sets the hint `SDL_ANDROID_BLOCK_ON_PAUSE` to `0` before `sdl.Sdl.init`, the user presses HOME and later returns
+- **THEN** the handler receives `AppWillEnterBackground` and `AppDidEnterBackground` while the app is in the background, and `AppWillEnterForeground` and `AppDidEnterForeground` after it returns
+
+#### Scenario: The OS ends the app
+- **WHEN** SDL sends `SDL_EVENT_QUIT` followed by `SDL_EVENT_TERMINATING` (Android `onDestroy`) and the handler returns `true` for `Quit`
+- **THEN** the same `processEvents` call hands `AppTerminating` to the handler after `Quit`, then returns `false`
+
+#### Scenario: Platform without lifecycle events
+- **WHEN** the platform's SDL never sends application lifecycle events (a desktop)
+- **THEN** `processEvents` delivers the same events as before
+
+## ADDED Requirements
+
+### Requirement: Lifecycle event types
+Each SDL application lifecycle event SHALL reach the handler with its own `sdl.Event.EventType`: `SDL_EVENT_TERMINATING` as `AppTerminating` (600), `SDL_EVENT_LOW_MEMORY` as `AppLowMemory` (601), `SDL_EVENT_WILL_ENTER_BACKGROUND` as `AppWillEnterBackground` (602), `SDL_EVENT_DID_ENTER_BACKGROUND` as `AppDidEnterBackground` (603), `SDL_EVENT_WILL_ENTER_FOREGROUND` as `AppWillEnterForeground` (604), `SDL_EVENT_DID_ENTER_FOREGROUND` as `AppDidEnterForeground` (605).
+
+#### Scenario: Low memory
+- **WHEN** SDL sends `SDL_EVENT_LOW_MEMORY`
+- **THEN** the handler receives an event of type `AppLowMemory`, whose value is 601

@@ -1,7 +1,7 @@
 # sdl-touch Specification
 
 ## Purpose
-The touch devices `sdl.Sdl` reports.
+The touch devices `sdl.Sdl` reports, so that an application can tell whether the machine has a touch screen.
 
 ## Requirements
 
