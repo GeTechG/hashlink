@@ -9,3 +9,5 @@ openspec/
 .mcp.json
 sgconfig.yml
 .codex/
+.claude/
+.agents/
