@@ -25,6 +25,20 @@ jobs:
           fi
           bash .github/scripts/check-commit-kinds.sh "$range"
 
+  openspec:
+    # Specs, changes and skills, validated by the OpenSpec version openspec/cli.pin names.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: OpenSpec checks
+        run: |
+          export OPENSPEC="npm exec --yes --package=@fission-ai/openspec@$(tr -d '[:space:]' < openspec/cli.pin) -- openspec"
+          bash openspec/check-test.sh
+          bash openspec/check.sh
+
   android-openal-static:
     # The upstream build-android job builds static archives that nothing links, so an
     # undefined symbol in openal.hdll goes unnoticed. Here openal.hdll is a shared library
