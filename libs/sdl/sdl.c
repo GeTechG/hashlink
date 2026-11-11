@@ -1216,7 +1216,7 @@ HL_PRIM varray* HL_NAME(get_displays)() {
 
 	for (int i = 0; i < n; i++) {
 		vdynamic *obj = (vdynamic*) hl_alloc_dynobj();
-		SDL_Rect rect;
+		SDL_Rect rect = { 0, 0, 0, 0 };
 		SDL_DisplayID display = displays[i];
 		SDL_GetDisplayBounds(display, &rect);
 		hl_dyn_seti(obj, hl_hash_utf8("right"), &hlt_i32, rect.x+rect.w);
@@ -1224,6 +1224,13 @@ HL_PRIM varray* HL_NAME(get_displays)() {
 		hl_dyn_seti(obj, hl_hash_utf8("left"), &hlt_i32, rect.x);
 		hl_dyn_seti(obj, hl_hash_utf8("top"), &hlt_i32, rect.y);
 		hl_dyn_seti(obj, hl_hash_utf8("handle"), &hlt_i32, display);
+		SDL_Rect usable;
+		if( !SDL_GetDisplayUsableBounds(display, &usable) )
+			usable = rect;
+		hl_dyn_seti(obj, hl_hash_utf8("usableRight"), &hlt_i32, usable.x+usable.w);
+		hl_dyn_seti(obj, hl_hash_utf8("usableBottom"), &hlt_i32, usable.y+usable.h);
+		hl_dyn_seti(obj, hl_hash_utf8("usableLeft"), &hlt_i32, usable.x);
+		hl_dyn_seti(obj, hl_hash_utf8("usableTop"), &hlt_i32, usable.y);
 		const char *name = SDL_GetDisplayName(display);
 		hl_dyn_setp(obj, hl_hash_utf8("name"), &hlt_bytes, hl_copy_bytes(name, (int) strlen(name)+1));
 		hl_aptr(arr, vdynamic*)[i] = obj;
