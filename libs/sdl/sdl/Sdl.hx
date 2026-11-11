@@ -7,6 +7,11 @@ typedef Display = {
 	var top : Int;
 	var right : Int;
 	var bottom : Int;
+	/** Edges of the part of the display not taken by the OS task bar, dock or menu bar (`SDL_GetDisplayUsableBounds`). **/
+	var usableLeft : Int;
+	var usableTop : Int;
+	var usableRight : Int;
+	var usableBottom : Int;
 };
 
 typedef ScreenMode = {
@@ -142,7 +147,7 @@ class Sdl {
 		if(displays == null)
 			return [];
 		var i = 0;
-		return [ for(d in get_displays() ) @:privateAccess { handle: d.handle, name: '${String.fromUTF8(d.name)} (${++i})', left: d.left, top: d.top, right: d.right, bottom: d.bottom } ];
+		return [ for(d in get_displays() ) @:privateAccess { handle: d.handle, name: '${String.fromUTF8(d.name)} (${++i})', left: d.left, top: d.top, right: d.right, bottom: d.bottom, usableLeft: d.usableLeft, usableTop: d.usableTop, usableRight: d.usableRight, usableBottom: d.usableBottom } ];
 	}
 
 	public static function getDevices() {
